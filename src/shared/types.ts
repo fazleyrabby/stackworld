@@ -11,6 +11,7 @@ export type EntityType =
   | 'network' 
   | 'static_host' 
   | 'dns' 
+  | 'cdn'
   | 'server' 
   | 'database' 
   | 'load_balancer';
@@ -55,6 +56,7 @@ export interface Entity {
     domain?: string;
     port?: number;
     version?: string;
+    cacheHitRatio?: number;
     [key: string]: unknown;
   };
   costMonthly: number;
@@ -74,11 +76,14 @@ export interface Packet {
   fromId: string;
   toId: string;
   type: 'request' | 'response';
-  progress: number; // 0.0 to 1.0 along the connection
-  speed: number;    // progress advance per second
+  path: string[];            // Multi-hop path: e.g. ['user', 'dns', 'host']
+  currentHopIndex: number;   // Current index in path
+  progress: number;          // 0.0 to 1.0 along the current hop
+  speed: number;             // progress advance per second
   status: 'in_flight' | 'delivered' | 'dropped';
   sizeKb: number;
   createdAtTick: number;
+  isCached?: boolean;        // True if served from CDN edge cache
 }
 
 export interface SimulationMetrics {
@@ -100,6 +105,8 @@ export interface SimulationEvent {
   entityId?: string;
 }
 
+import { ScenarioState } from '../scenarios/types';
+
 export interface SimulationSnapshot {
   tick: number;
   timeSeconds: number;
@@ -110,6 +117,7 @@ export interface SimulationSnapshot {
   packets: Packet[];
   metrics: SimulationMetrics;
   events: SimulationEvent[];
+  scenarioState: ScenarioState;
 }
 
 export interface CameraState {

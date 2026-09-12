@@ -237,24 +237,26 @@ export class CanvasRenderer {
     ctx.save();
 
     let color = '#38bdf8'; // Request Cyan
-    if (!isRequest) {
+    if (packet.isCached) {
+      color = '#c084fc'; // Purple / Violet Edge Cache Hit
+    } else if (!isRequest) {
       color = packet.status === 'dropped' ? '#f43f5e' : '#10b981'; // Green success or Red dropped
     }
 
     // Outer Glow
-    const gradient = ctx.createRadialGradient(px, py, 0, px, py, 10);
+    const gradient = ctx.createRadialGradient(px, py, 0, px, py, packet.isCached ? 13 : 10);
     gradient.addColorStop(0, color);
     gradient.addColorStop(0.6, `${color}44`);
     gradient.addColorStop(1, 'transparent');
     ctx.fillStyle = gradient;
     ctx.beginPath();
-    ctx.arc(px, py, 10, 0, Math.PI * 2);
+    ctx.arc(px, py, packet.isCached ? 13 : 10, 0, Math.PI * 2);
     ctx.fill();
 
     // Inner Core
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+    ctx.arc(px, py, packet.isCached ? 4.5 : 3.5, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -313,7 +315,7 @@ export class CanvasRenderer {
     // Type Badge
     ctx.font = '500 9px "Fira Code", monospace';
     ctx.fillStyle = '#64748b';
-    ctx.fillText(entity.type.toUpperCase(), x + 26, y + 27);
+    ctx.fillText(entity.type.toUpperCase().replace('_', ' '), x + 26, y + 27);
 
     // Status label on top right
     ctx.textAlign = 'right';
@@ -321,20 +323,55 @@ export class CanvasRenderer {
     ctx.fillStyle = statusColor;
     ctx.fillText(entity.status, x + w - 12, y + 12);
 
-    // 7. Resource Meters
-    const isServer = entity.type === 'static_host' || entity.type === 'server';
-    if (isServer) {
+    // 7. Node-specific visual bodies
+    if (entity.type === 'static_host' || entity.type === 'server') {
       const cpuPct = Math.round(entity.resources.cpu.utilizationPct);
       const memPct = Math.round(entity.resources.memory.utilizationPct);
 
       this.drawMiniBar(ctx, x + 12, y + 46, w - 24, 'CPU', `${cpuPct}%`, cpuPct, this.getUtilizationColor(cpuPct));
       this.drawMiniBar(ctx, x + 12, y + 70, w - 24, 'RAM', `${memPct}%`, memPct, this.getUtilizationColor(memPct));
+    } else if (entity.type === 'dns') {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px Inter, sans-serif';
+      ctx.fillText('Record: A Record (IPv4)', x + 14, y + 48);
+      ctx.fillText('Resolve: 198.51.100.42', x + 14, y + 66);
+
+      ctx.textAlign = 'right';
+      ctx.font = '10px "Fira Code", monospace';
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText('TTL: 300s', x + w - 14, y + 48);
+    } else if (entity.type === 'cdn') {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#c084fc';
+      ctx.font = '600 10px Inter, sans-serif';
+      ctx.fillText('⚡ Edge Cache: 80% Hit Rate', x + 14, y + 48);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px Inter, sans-serif';
+      ctx.fillText('280 Global Edge PoPs', x + 14, y + 66);
+
+      ctx.textAlign = 'right';
+      ctx.font = '10px "Fira Code", monospace';
+      ctx.fillStyle = '#10b981';
+      ctx.fillText('FAST 8ms', x + w - 14, y + 48);
+    } else if (entity.type === 'load_balancer') {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px Inter, sans-serif';
+      ctx.fillText('Algorithm: Round Robin', x + 14, y + 48);
+      ctx.fillText('Target Hosts: 2 Active', x + 14, y + 66);
+
+      ctx.textAlign = 'right';
+      ctx.font = '10px "Fira Code", monospace';
+      ctx.fillStyle = '#10b981';
+      ctx.fillText('50/50 SPLIT', x + w - 14, y + 48);
     } else {
       // User / Client node
       ctx.textAlign = 'left';
       ctx.fillStyle = '#94a3b8';
       ctx.font = '11px Inter, sans-serif';
-      ctx.fillText('Clients: 120 active', x + 14, y + 50);
+      ctx.fillText('Clients: 240 active', x + 14, y + 50);
       ctx.fillText('Region: Global DNS', x + 14, y + 68);
 
       ctx.textAlign = 'right';

@@ -4,7 +4,11 @@
  * The core deterministic simulation engine for StackWorld.
  * STRICT RULE: Zero React or UI dependencies.
  * 
- * Runs on discrete ticks (typically 20 Hz / 50ms) driven by SimulationClock.
+ * Supports:
+ * - Deterministic fixed 20 Hz tick loop
+ * - Multi-hop routing: User -> DNS -> [CDN / LB] -> Static Host
+ * - Scenario progression (Baseline -> Surge -> Degraded -> Solution -> Victory)
+ * - Dynamic live topology mutations (Vertical scaling, Edge CDN insertion, Horizontal LB)
  */
 
 import {
@@ -18,6 +22,8 @@ import {
   Vector2D,
 } from '../shared/types';
 import { SimulationClock } from './Clock';
+import { staticSiteScenario } from '../scenarios/staticSiteScenario';
+import { ScenarioState } from '../scenarios/types';
 
 export interface SimulationEngineConfig {
   seed?: number;
@@ -26,26 +32,35 @@ export interface SimulationEngineConfig {
 
 export class SimulationEngine {
   public readonly clock: SimulationClock;
-  
+
   private entities: Map<string, Entity> = new Map();
   private connections: Map<string, Connection> = new Map();
   private packets: Map<string, Packet> = new Map();
   private events: SimulationEvent[] = [];
-  
+
   private metrics: SimulationMetrics = {
     requestsTotal: 0,
     requestsSuccessful: 0,
     requestsFailed: 0,
     currentRps: 0,
-    averageLatencyMs: 25,
+    averageLatencyMs: 22,
     clusterHealth: 'HEALTHY',
-    monthlyCost: 20.0,
+    monthlyCost: 15.0,
+  };
+
+  private scenarioState: ScenarioState = {
+    currentStageId: 'stage_baseline',
+    selectedSolutionId: null,
+    sustainedHealthySeconds: 0,
+    isSolutionModalOpen: false,
+    isVictoryModalOpen: false,
   };
 
   private targetRps: number = 6;
   private pendingRequestAccumulator: number = 0;
   private nextPacketId: number = 1;
   private nextEventId: number = 1;
+  private requestCounter: number = 0;
   private completedRequestsWindow: { tick: number; latencyMs: number; success: boolean }[] = [];
 
   // Snapshot listeners
@@ -57,15 +72,13 @@ export class SimulationEngine {
 
     this.initializeDefaultWorld();
 
-    // Subscribe to clock ticks
-    this.clock.subscribe((tick, simTimeSeconds, dtSeconds) => {
-      this.tick(tick, simTimeSeconds, dtSeconds);
+    this.clock.subscribe((tick, _simTimeSeconds, dtSeconds) => {
+      this.tick(tick, _simTimeSeconds, dtSeconds);
     });
   }
 
   public subscribe(listener: (snapshot: SimulationSnapshot) => void): () => void {
     this.snapshotListeners.add(listener);
-    // Send immediate snapshot
     listener(this.getSnapshot());
     return () => this.snapshotListeners.delete(listener);
   }
@@ -99,7 +112,7 @@ export class SimulationEngine {
   }
 
   public setTargetRps(rps: number): void {
-    this.targetRps = Math.max(0, rps);
+    this.targetRps = Math.max(1, rps);
     this.logEvent('info', `Traffic target adjusted to ${this.targetRps} req/s`);
     this.emitSnapshot();
   }
@@ -122,13 +135,180 @@ export class SimulationEngine {
     }
   }
 
+  public openSolutionModal(): void {
+    this.scenarioState.isSolutionModalOpen = true;
+    this.emitSnapshot();
+  }
+
+  public closeSolutionModal(): void {
+    this.scenarioState.isSolutionModalOpen = false;
+    this.emitSnapshot();
+  }
+
+  public closeVictoryModal(): void {
+    this.scenarioState.isVictoryModalOpen = false;
+    this.emitSnapshot();
+  }
+
+  /**
+   * Applies an architectural solution chosen by the learner.
+   */
+  public applySolution(solutionId: string): void {
+    const solution = staticSiteScenario.availableSolutions.find((s) => s.id === solutionId);
+    if (!solution) return;
+
+    this.scenarioState.selectedSolutionId = solutionId;
+    this.scenarioState.isSolutionModalOpen = false;
+    this.scenarioState.currentStageId = 'stage_solution_applied';
+    this.scenarioState.sustainedHealthySeconds = 0;
+
+    if (solutionId === 'sol_vertical_scale') {
+      // Scale server vertically
+      const server = this.entities.get('server-prod-1');
+      if (server) {
+        server.name = 'Web Host (4 vCPU / 4GB)';
+        server.resources.cpu.capacityCores = 4;
+        server.resources.memory.capacityMb = 4096;
+        server.resources.connections.max = 128;
+        server.configuration.maxRps = 95;
+        server.costMonthly += 15.0;
+      }
+      this.metrics.monthlyCost += 15.0;
+      this.logEvent('success', 'Architecture updated: Server vertically upgraded to 4 vCPUs / 4GB RAM.');
+    } else if (solutionId === 'sol_add_cdn') {
+      // Deploy Edge CDN between DNS and Host
+      const cdn: Entity = {
+        id: 'cdn-edge-1',
+        type: 'cdn',
+        name: 'Cloudflare Edge CDN',
+        position: { x: 90, y: 0 },
+        status: 'HEALTHY',
+        resources: {
+          cpu: { capacityCores: 8, usedCores: 0.2, utilizationPct: 2.5 },
+          memory: { capacityMb: 4096, usedMb: 320, utilizationPct: 7.8 },
+          connections: { current: 0, max: 5000 },
+        },
+        configuration: {
+          cacheHitRatio: 0.8,
+          edgeLocations: 280,
+          ttlSeconds: 86400,
+        },
+        costMonthly: 5.0,
+      };
+
+      this.entities.set(cdn.id, cdn);
+
+      // Reconnect: DNS -> CDN, CDN -> Server
+      this.connections.delete('conn-dns-to-server');
+      this.connections.set('conn-dns-to-cdn', {
+        id: 'conn-dns-to-cdn',
+        fromId: 'dns-1',
+        toId: 'cdn-edge-1',
+        bandwidthMbps: 1000,
+        latencyMs: 6,
+        currentTrafficMbps: 0,
+      });
+      this.connections.set('conn-cdn-to-server', {
+        id: 'conn-cdn-to-server',
+        fromId: 'cdn-edge-1',
+        toId: 'server-prod-1',
+        bandwidthMbps: 500,
+        latencyMs: 14,
+        currentTrafficMbps: 0,
+      });
+
+      this.metrics.monthlyCost += 5.0;
+      this.logEvent('success', 'Architecture updated: Edge CDN deployed! 80% of static traffic will be cached.');
+    } else if (solutionId === 'sol_load_balancer') {
+      // Deploy Load Balancer and second server
+      const lb: Entity = {
+        id: 'lb-1',
+        type: 'load_balancer',
+        name: 'Nginx Load Balancer',
+        position: { x: 70, y: 0 },
+        status: 'HEALTHY',
+        resources: {
+          cpu: { capacityCores: 2, usedCores: 0.1, utilizationPct: 5.0 },
+          memory: { capacityMb: 1024, usedMb: 120, utilizationPct: 11.7 },
+          connections: { current: 0, max: 2000 },
+        },
+        configuration: {
+          algorithm: 'Round Robin',
+          healthCheckIntervalMs: 5000,
+        },
+        costMonthly: 10.0,
+      };
+
+      const server2: Entity = {
+        id: 'server-prod-2',
+        type: 'static_host',
+        name: 'Web Host 02',
+        position: { x: 280, y: 110 },
+        status: 'HEALTHY',
+        resources: {
+          cpu: { capacityCores: 2, usedCores: 0.1, utilizationPct: 5.0 },
+          memory: { capacityMb: 2048, usedMb: 310, utilizationPct: 15.1 },
+          connections: { current: 0, max: 64 },
+        },
+        configuration: {
+          ipAddress: '198.51.100.43',
+          domain: 'stackworld.app',
+          maxRps: 45,
+          baseLatencyMs: 18,
+        },
+        costMonthly: 15.0,
+      };
+
+      // Reposition Server 1
+      const server1 = this.entities.get('server-prod-1');
+      if (server1) {
+        server1.name = 'Web Host 01';
+        server1.position = { x: 280, y: -110 };
+      }
+
+      this.entities.set(lb.id, lb);
+      this.entities.set(server2.id, server2);
+
+      this.connections.delete('conn-dns-to-server');
+      this.connections.set('conn-dns-to-lb', {
+        id: 'conn-dns-to-lb',
+        fromId: 'dns-1',
+        toId: 'lb-1',
+        bandwidthMbps: 1000,
+        latencyMs: 6,
+        currentTrafficMbps: 0,
+      });
+      this.connections.set('conn-lb-to-s1', {
+        id: 'conn-lb-to-s1',
+        fromId: 'lb-1',
+        toId: 'server-prod-1',
+        bandwidthMbps: 500,
+        latencyMs: 8,
+        currentTrafficMbps: 0,
+      });
+      this.connections.set('conn-lb-to-s2', {
+        id: 'conn-lb-to-s2',
+        fromId: 'lb-1',
+        toId: 'server-prod-2',
+        bandwidthMbps: 500,
+        latencyMs: 8,
+        currentTrafficMbps: 0,
+      });
+
+      this.metrics.monthlyCost += 25.0;
+      this.logEvent('success', 'Architecture updated: Nginx Load Balancer and Host 02 deployed.');
+    }
+
+    this.emitSnapshot();
+  }
+
   public getSnapshot(): SimulationSnapshot {
     return {
       tick: this.clock.getTick(),
       timeSeconds: this.clock.getSimTimeSeconds(),
       speedMultiplier: this.clock.getSpeed(),
       isPaused: this.clock.getIsPaused(),
-      entities: Array.from(this.entities.values()).map(e => ({
+      entities: Array.from(this.entities.values()).map((e) => ({
         ...e,
         resources: {
           cpu: { ...e.resources.cpu },
@@ -140,13 +320,12 @@ export class SimulationEngine {
       packets: Array.from(this.packets.values()),
       metrics: { ...this.metrics },
       events: [...this.events],
+      scenarioState: { ...this.scenarioState },
     };
   }
 
-  /**
-   * Main simulation tick (called deterministically 20 times per sim second)
-   */
   public tick(tick: number, _simTimeSeconds: number, dtSeconds: number): void {
+    this.processScenarioProgress(dtSeconds);
     this.generateTraffic(dtSeconds);
     this.updatePackets(dtSeconds);
     this.updateResourcesAndHealth();
@@ -160,18 +339,39 @@ export class SimulationEngine {
     const userGroup: Entity = {
       id: 'user-group-1',
       type: 'user',
-      name: 'Internet Users',
-      position: { x: -260, y: 0 },
+      name: 'Internet Visitors',
+      position: { x: -320, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 1, usedCores: 0.1, utilizationPct: 10 },
         memory: { capacityMb: 512, usedMb: 48, utilizationPct: 9.3 },
-        connections: { current: 12, max: 1000 },
+        connections: { current: 0, max: 10000 },
       },
       configuration: {
-        location: 'Global (North America / Europe)',
-        activeClients: 120,
+        location: 'Global (North America / Europe / Asia)',
+        browserClients: 240,
         protocol: 'HTTP/2',
+      },
+      costMonthly: 0,
+    };
+
+    const dnsServer: Entity = {
+      id: 'dns-1',
+      type: 'dns',
+      name: 'Authoritative DNS',
+      position: { x: -60, y: 0 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 4, usedCores: 0.05, utilizationPct: 2.0 },
+        memory: { capacityMb: 1024, usedMb: 95, utilizationPct: 9.2 },
+        connections: { current: 0, max: 50000 },
+      },
+      configuration: {
+        recordType: 'A Record',
+        domain: 'stackworld.app',
+        resolvedIp: '198.51.100.42',
+        ttlSeconds: 300,
+        lookupLatencyMs: 6,
       },
       costMonthly: 0,
     };
@@ -180,13 +380,13 @@ export class SimulationEngine {
       id: 'server-prod-1',
       type: 'static_host',
       name: 'Web Host (Nginx)',
-      position: { x: 260, y: 0 },
+      position: { x: 240, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
         memory: { capacityMb: 2048, usedMb: 340, utilizationPct: 16.6 },
         disk: { capacityGb: 40, usedGb: 3.2 },
-        connections: { current: 12, max: 64 },
+        connections: { current: 0, max: 64 },
       },
       configuration: {
         ipAddress: '198.51.100.42',
@@ -200,59 +400,152 @@ export class SimulationEngine {
     };
 
     this.entities.set(userGroup.id, userGroup);
+    this.entities.set(dnsServer.id, dnsServer);
     this.entities.set(staticServer.id, staticServer);
 
-    const primaryLink: Connection = {
-      id: 'conn-user-to-server',
+    // Initial Connections: User -> DNS -> Server
+    this.connections.set('conn-user-to-dns', {
+      id: 'conn-user-to-dns',
       fromId: userGroup.id,
+      toId: dnsServer.id,
+      bandwidthMbps: 1000,
+      latencyMs: 8,
+      currentTrafficMbps: 0.8,
+    });
+
+    this.connections.set('conn-dns-to-server', {
+      id: 'conn-dns-to-server',
+      fromId: dnsServer.id,
       toId: staticServer.id,
-      bandwidthMbps: 100,
-      latencyMs: 22,
+      bandwidthMbps: 500,
+      latencyMs: 14,
       currentTrafficMbps: 1.4,
+    });
+
+    this.logEvent('info', 'Scenario loaded: User → Authoritative DNS → Web Host (Nginx)');
+  }
+
+  private processScenarioProgress(dtSeconds: number): void {
+    const simTime = this.clock.getSimTimeSeconds();
+
+    // Stage 1 -> Stage 2: Automatic Traffic Surge at 14s
+    if (this.scenarioState.currentStageId === 'stage_baseline' && simTime >= 12) {
+      this.scenarioState.currentStageId = 'stage_surge';
+      this.targetRps = 38;
+      this.logEvent('warn', '🚨 Product Hunt feature launched! Traffic surging to 38 req/s.');
+    }
+
+    // Stage 2 -> Stage 3: Server Degradation detection
+    if (this.scenarioState.currentStageId === 'stage_surge') {
+      const server = this.entities.get('server-prod-1');
+      if (server && (server.status === 'OVERLOADED' || server.status === 'FAILING' || server.resources.cpu.utilizationPct > 80)) {
+        this.scenarioState.currentStageId = 'stage_degraded';
+        this.scenarioState.isSolutionModalOpen = true;
+        this.logEvent('error', '⚠️ Server overloaded! Capacity exceeded. Please choose an architectural remedy.');
+      }
+    }
+
+    // Stage 4 -> Stage 5: Solution verification (sustain 12s healthy)
+    if (this.scenarioState.currentStageId === 'stage_solution_applied') {
+      if (this.metrics.clusterHealth === 'HEALTHY' || this.metrics.clusterHealth === 'DEGRADED') {
+        this.scenarioState.sustainedHealthySeconds += dtSeconds;
+        if (this.scenarioState.sustainedHealthySeconds >= staticSiteScenario.successConditions.minSustainedSeconds) {
+          this.scenarioState.currentStageId = 'stage_victory';
+          this.scenarioState.isVictoryModalOpen = true;
+          this.calculateVictoryScore();
+          this.logEvent('success', '🏆 SCENARIO COMPLETE! Your architecture passed all production requirements.');
+        }
+      } else {
+        this.scenarioState.sustainedHealthySeconds = Math.max(0, this.scenarioState.sustainedHealthySeconds - dtSeconds * 0.5);
+      }
+    }
+  }
+
+  private calculateVictoryScore(): void {
+    let grade: 'S' | 'A' | 'B' | 'C' = 'A';
+    let reliability = 90;
+    let costEff = 85;
+    let complexity = 80;
+    let summary = '';
+
+    if (this.scenarioState.selectedSolutionId === 'sol_add_cdn') {
+      grade = 'S';
+      reliability = 98;
+      costEff = 95;
+      complexity = 90;
+      summary = 'Optimal static architecture! Edge CDN caches 80% of requests, protecting origin server for only +$5/mo.';
+    } else if (this.scenarioState.selectedSolutionId === 'sol_load_balancer') {
+      grade = 'A';
+      reliability = 99;
+      costEff = 72;
+      complexity = 75;
+      summary = 'Robust enterprise architecture. High availability with zero single-point-of-failure, though higher monthly cost.';
+    } else {
+      grade = 'B';
+      reliability = 82;
+      costEff = 75;
+      complexity = 95;
+      summary = 'Simple & fast to deploy, but leaves a single point of failure and higher recurring hardware costs.';
+    }
+
+    this.scenarioState.score = {
+      grade,
+      reliabilityScore: reliability,
+      costEfficiencyScore: costEff,
+      complexityScore: complexity,
+      summary,
     };
-
-    this.connections.set(primaryLink.id, primaryLink);
-
-    this.logEvent('info', 'Simulation initialized: 1 Static Host, 1 User Group.');
   }
 
   private generateTraffic(dtSeconds: number): void {
-    // Accumulate requests based on target RPS
     this.pendingRequestAccumulator += this.targetRps * dtSeconds;
 
-    const server = this.entities.get('server-prod-1');
     const user = this.entities.get('user-group-1');
-    if (!server || !user) return;
+    const dns = this.entities.get('dns-1');
+    if (!user || !dns) return;
 
     while (this.pendingRequestAccumulator >= 1.0) {
       this.pendingRequestAccumulator -= 1.0;
       this.metrics.requestsTotal++;
+      this.requestCounter++;
 
-      // Create request packet from User -> Server
+      // Construct multi-hop request path
+      let requestPath = [user.id, dns.id];
+
+      const hasCdn = this.entities.has('cdn-edge-1');
+      const hasLb = this.entities.has('lb-1');
+
+      if (hasCdn) {
+        requestPath.push('cdn-edge-1');
+      } else if (hasLb) {
+        requestPath.push('lb-1');
+        // Round robin between server 1 and 2
+        const targetServer = this.requestCounter % 2 === 0 ? 'server-prod-1' : 'server-prod-2';
+        requestPath.push(targetServer);
+      } else {
+        requestPath.push('server-prod-1');
+      }
+
       const packetId = `pkt-${this.nextPacketId++}`;
       const packet: Packet = {
         id: packetId,
-        fromId: user.id,
-        toId: server.id,
+        fromId: requestPath[0],
+        toId: requestPath[1],
         type: 'request',
+        path: requestPath,
+        currentHopIndex: 0,
         progress: 0.0,
-        // Traversal speed (takes ~0.50s visual flight time)
-        speed: 2.0,
+        speed: 2.8,
         status: 'in_flight',
         sizeKb: 1.2,
         createdAtTick: this.clock.getTick(),
       };
 
       this.packets.set(packetId, packet);
-      server.resources.connections.current++;
     }
   }
 
   private updatePackets(dtSeconds: number): void {
-    const server = this.entities.get('server-prod-1');
-    const user = this.entities.get('user-group-1');
-    if (!server || !user) return;
-
     const packetsToRemove: string[] = [];
 
     for (const [id, packet] of this.packets) {
@@ -260,13 +553,48 @@ export class SimulationEngine {
 
       if (packet.progress >= 1.0) {
         packet.progress = 1.0;
-        packetsToRemove.push(id);
 
         if (packet.type === 'request') {
-          // Request has reached the server
-          this.handleRequestArrival(packet, server, user);
+          const nextHopIdx = packet.currentHopIndex + 1;
+          const currentTargetId = packet.path[nextHopIdx];
+
+          // Check CDN Edge Cache Hit
+          if (currentTargetId === 'cdn-edge-1') {
+            const isCacheHit = Math.random() < 0.8;
+            if (isCacheHit) {
+              // Cache HIT! Packet bounces back directly from CDN to User
+              packet.type = 'response';
+              packet.isCached = true;
+              packet.fromId = 'cdn-edge-1';
+              packet.toId = 'user-group-1';
+              packet.progress = 0.0;
+              packet.speed = 3.2; // Blazing fast cached return
+              continue;
+            } else {
+              // Cache MISS! Advance to origin server
+              packet.currentHopIndex = nextHopIdx;
+              packet.fromId = 'cdn-edge-1';
+              packet.toId = 'server-prod-1';
+              packet.progress = 0.0;
+              continue;
+            }
+          }
+
+          // Check if packet reached intermediate node (e.g. DNS or LB)
+          if (nextHopIdx < packet.path.length - 1) {
+            packet.currentHopIndex = nextHopIdx;
+            packet.fromId = packet.path[nextHopIdx];
+            packet.toId = packet.path[nextHopIdx + 1];
+            packet.progress = 0.0;
+            continue;
+          }
+
+          // Packet reached final origin host
+          packetsToRemove.push(id);
+          this.handleRequestArrival(packet, currentTargetId);
         } else {
-          // Response has returned to the user
+          // Response arrived back to User
+          packetsToRemove.push(id);
           this.handleResponseArrival(packet);
         }
       }
@@ -277,22 +605,27 @@ export class SimulationEngine {
     }
   }
 
-  private handleRequestArrival(packet: Packet, server: Entity, user: Entity): void {
-    // Check if server is overloaded or connection pool exhausted
+  private handleRequestArrival(packet: Packet, serverId: string): void {
+    const server = this.entities.get(serverId) || this.entities.get('server-prod-1');
+    const user = this.entities.get('user-group-1');
+    if (!server || !user) return;
+
+    server.resources.connections.current++;
+
     const isConnectionExhausted = server.resources.connections.current > server.resources.connections.max;
     const isCpuCrash = server.resources.cpu.utilizationPct > 100;
-
     const failed = isConnectionExhausted || isCpuCrash;
 
-    // Server spawns response packet back to User
     const respId = `pkt-${this.nextPacketId++}`;
     const responsePacket: Packet = {
       id: respId,
       fromId: server.id,
       toId: user.id,
       type: 'response',
+      path: [server.id, user.id],
+      currentHopIndex: 0,
       progress: 0.0,
-      speed: failed ? 1.4 : 2.0,
+      speed: failed ? 1.6 : 2.5,
       status: failed ? 'dropped' : 'in_flight',
       sizeKb: failed ? 0.3 : 18.4,
       createdAtTick: packet.createdAtTick,
@@ -302,9 +635,9 @@ export class SimulationEngine {
   }
 
   private handleResponseArrival(packet: Packet): void {
-    const server = this.entities.get('server-prod-1');
-    if (server && server.resources.connections.current > 0) {
-      server.resources.connections.current--;
+    const origin = this.entities.get(packet.fromId);
+    if (origin && origin.resources.connections.current > 0) {
+      origin.resources.connections.current--;
     }
 
     const currentTick = this.clock.getTick();
@@ -316,7 +649,7 @@ export class SimulationEngine {
       this.metrics.requestsSuccessful++;
     } else {
       this.metrics.requestsFailed++;
-      this.logEvent('error', `HTTP 502/504: Server dropped request (latency: ${latencyMs}ms)`);
+      this.logEvent('error', `HTTP 502 Bad Gateway: Origin server capacity dropped connection (${latencyMs}ms)`);
     }
 
     this.completedRequestsWindow.push({
@@ -327,57 +660,49 @@ export class SimulationEngine {
   }
 
   private updateResourcesAndHealth(): void {
-    const server = this.entities.get('server-prod-1');
-    if (!server) return;
+    const servers = Array.from(this.entities.values()).filter((e) => e.type === 'static_host');
+    let worstHealth: HealthStatus = 'HEALTHY';
 
-    // Dynamic CPU calculation based on in-flight and active requests
-    const activeReqs = server.resources.connections.current;
-    const maxCapacity = (server.configuration.maxRps as number) || 45;
-    
-    // CPU load base 5% + proportional to active requests
-    const baseCpu = 5.0;
-    const dynamicCpu = (activeReqs / maxCapacity) * 90.0;
-    const targetCpuPct = Math.min(115, Math.round(baseCpu + dynamicCpu));
+    for (const server of servers) {
+      const activeReqs = server.resources.connections.current;
+      const maxCapacity = (server.configuration.maxRps as number) || 45;
 
-    // Smooth CPU transition
-    server.resources.cpu.utilizationPct += (targetCpuPct - server.resources.cpu.utilizationPct) * 0.2;
-    server.resources.cpu.usedCores = Number(((server.resources.cpu.utilizationPct / 100) * server.resources.cpu.capacityCores).toFixed(2));
+      const baseCpu = 4.0;
+      const dynamicCpu = (activeReqs / maxCapacity) * 88.0;
+      const targetCpuPct = Math.min(115, Math.round(baseCpu + dynamicCpu));
 
-    // Memory usage follows connection count
-    const baseMemoryMb = 280;
-    const memPerConnMb = 14;
-    server.resources.memory.usedMb = Math.round(baseMemoryMb + activeReqs * memPerConnMb);
-    server.resources.memory.utilizationPct = Number(((server.resources.memory.usedMb / server.resources.memory.capacityMb) * 100).toFixed(1));
+      server.resources.cpu.utilizationPct += (targetCpuPct - server.resources.cpu.utilizationPct) * 0.22;
+      server.resources.cpu.usedCores = Number(((server.resources.cpu.utilizationPct / 100) * server.resources.cpu.capacityCores).toFixed(2));
 
-    // Determine Health Status per Section 12
-    const cpu = server.resources.cpu.utilizationPct;
-    let newStatus: HealthStatus = 'HEALTHY';
+      server.resources.memory.usedMb = Math.round(280 + activeReqs * 14);
+      server.resources.memory.utilizationPct = Number(((server.resources.memory.usedMb / server.resources.memory.capacityMb) * 100).toFixed(1));
 
-    if (cpu >= 100 || activeReqs > server.resources.connections.max) {
-      newStatus = 'FAILING';
-    } else if (cpu >= 85) {
-      newStatus = 'OVERLOADED';
-    } else if (cpu >= 70) {
-      newStatus = 'DEGRADED';
-    } else {
-      newStatus = 'HEALTHY';
+      const cpu = server.resources.cpu.utilizationPct;
+      let newStatus: HealthStatus = 'HEALTHY';
+
+      if (cpu >= 100 || activeReqs > server.resources.connections.max) {
+        newStatus = 'FAILING';
+      } else if (cpu >= 80) {
+        newStatus = 'OVERLOADED';
+      } else if (cpu >= 65) {
+        newStatus = 'DEGRADED';
+      }
+
+      if (server.status !== newStatus) {
+        server.status = newStatus;
+      }
+
+      if (newStatus === 'FAILING') worstHealth = 'FAILING';
+      else if (newStatus === 'OVERLOADED' && worstHealth !== 'FAILING') worstHealth = 'OVERLOADED';
+      else if (newStatus === 'DEGRADED' && worstHealth === 'HEALTHY') worstHealth = 'DEGRADED';
     }
 
-    if (server.status !== newStatus) {
-      const oldStatus = server.status;
-      server.status = newStatus;
-
-      const level = newStatus === 'HEALTHY' ? 'success' : (newStatus === 'DEGRADED' ? 'warn' : 'error');
-      this.logEvent(level, `Server status transitioned: ${oldStatus} → ${newStatus} (CPU: ${Math.round(cpu)}%)`);
-    }
-
-    this.metrics.clusterHealth = server.status;
+    this.metrics.clusterHealth = worstHealth;
   }
 
   private updateMetrics(currentTick: number): void {
-    // Keep a rolling 3-second window (60 ticks at 20Hz)
     const windowTicks = 60;
-    const recent = this.completedRequestsWindow.filter(r => currentTick - r.tick <= windowTicks);
+    const recent = this.completedRequestsWindow.filter((r) => currentTick - r.tick <= windowTicks);
 
     if (recent.length > 0) {
       const windowSeconds = windowTicks * this.clock.tickDurationSeconds;
@@ -388,19 +713,12 @@ export class SimulationEngine {
     } else {
       this.metrics.currentRps = 0;
     }
-
-    // Update connection traffic
-    const conn = this.connections.get('conn-user-to-server');
-    if (conn) {
-      conn.currentTrafficMbps = Number((this.metrics.currentRps * 0.16).toFixed(2));
-    }
   }
 
   private pruneHistory(currentTick: number): void {
-    const maxWindowTicks = 120; // 6 seconds
-    this.completedRequestsWindow = this.completedRequestsWindow.filter(r => currentTick - r.tick <= maxWindowTicks);
+    const maxWindowTicks = 120;
+    this.completedRequestsWindow = this.completedRequestsWindow.filter((r) => currentTick - r.tick <= maxWindowTicks);
 
-    // Limit event log size
     if (this.events.length > 50) {
       this.events = this.events.slice(-50);
     }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { SimulationSnapshot, HealthStatus } from '../shared/types';
-import { Activity, Bell, DollarSign, Globe, Layers } from 'lucide-react';
+import { Activity, Bell, DollarSign, Globe, Layers, Zap } from 'lucide-react';
 import { useUiStore } from '../state/useUiStore';
 
 interface TopBarProps {
@@ -38,7 +38,9 @@ export const TopBar: React.FC<TopBarProps> = ({ snapshot }) => {
       {/* Left: Brand & Scenario */}
       <div className="top-bar-left">
         <div className="brand-group">
-          <div className="brand-icon">⚡</div>
+          <div className="brand-icon">
+            <Zap size={15} strokeWidth={2.5} color="var(--cyan)" />
+          </div>
           <span className="brand-title">
             STACK<span>WORLD</span>
           </span>

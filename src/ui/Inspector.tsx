@@ -104,7 +104,7 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
                     <div
                       className="meter-fill"
                       style={{
-                        width: `${Math.min(100, cpuPct)}%`,
+                        transform: `scaleX(${Math.min(1, Math.max(0, cpuPct / 100))})`,
                         backgroundColor: getMeterColor(cpuPct),
                       }}
                     />
@@ -128,7 +128,7 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
                     <div
                       className="meter-fill"
                       style={{
-                        width: `${Math.min(100, memPct)}%`,
+                        transform: `scaleX(${Math.min(1, Math.max(0, memPct / 100))})`,
                         backgroundColor: 'var(--emerald)',
                       }}
                     />
@@ -152,7 +152,7 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
                     <div
                       className="meter-fill"
                       style={{
-                        width: `${Math.min(100, connPct)}%`,
+                        transform: `scaleX(${Math.min(1, Math.max(0, connPct / 100))})`,
                         backgroundColor: 'var(--purple)',
                       }}
                     />
