@@ -8,6 +8,12 @@
 [![Vitest](https://img.shields.io/badge/Vitest-3.2-yellow.svg)](https://vitest.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+<br/>
+
+<p align="center">
+  <img src="docs/assets/banner.jpg" alt="StackWorld Infrastructure Simulator Banner" width="100%" />
+</p>
+
 ---
 
 ## 🌟 Overview
