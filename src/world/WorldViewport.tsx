@@ -24,6 +24,10 @@ export const WorldViewport: React.FC<WorldViewportProps> = ({ engine }) => {
   const setSelectedEntityId = useUiStore((state) => state.setSelectedEntityId);
   const setHoveredEntityId = useUiStore((state) => state.setHoveredEntityId);
 
+  // Maintain live options ref so the render loop sees selections without re-initializing canvas or tearing down dragging
+  const optionsRef = useRef({ selectedEntityId, hoveredEntityId });
+  optionsRef.current = { selectedEntityId, hoveredEntityId };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -53,10 +57,7 @@ export const WorldViewport: React.FC<WorldViewportProps> = ({ engine }) => {
 
       renderer.render(
         latestSnapshot,
-        {
-          selectedEntityId,
-          hoveredEntityId,
-        },
+        optionsRef.current,
         dt
       );
 
@@ -71,7 +72,7 @@ export const WorldViewport: React.FC<WorldViewportProps> = ({ engine }) => {
       unsubscribe();
       interaction.destroy();
     };
-  }, [engine, selectedEntityId, hoveredEntityId, setSelectedEntityId, setHoveredEntityId]);
+  }, [engine, setSelectedEntityId, setHoveredEntityId]);
 
   const handleZoomIn = () => {
     const canvas = canvasRef.current;

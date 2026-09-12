@@ -57,6 +57,7 @@ export class InteractionManager {
     this.canvas.addEventListener('pointerdown', this.handlePointerDown);
     window.addEventListener('pointermove', this.handlePointerMove);
     window.addEventListener('pointerup', this.handlePointerUp);
+    window.addEventListener('pointercancel', this.handlePointerUp);
     this.canvas.addEventListener('wheel', this.handleWheel, { passive: false });
   }
 
@@ -64,6 +65,7 @@ export class InteractionManager {
     this.canvas.removeEventListener('pointerdown', this.handlePointerDown);
     window.removeEventListener('pointermove', this.handlePointerMove);
     window.removeEventListener('pointerup', this.handlePointerUp);
+    window.removeEventListener('pointercancel', this.handlePointerUp);
     this.canvas.removeEventListener('wheel', this.handleWheel);
   }
 
@@ -74,6 +76,12 @@ export class InteractionManager {
 
     this.isPointerDown = true;
     this.lastPointerScreen = { x: screenX, y: screenY };
+
+    try {
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignored if browser pointer capture not supported
+    }
 
     const worldPos = this.camera.screenToWorld(screenX, screenY, rect.width, rect.height);
     const hitEntity = this.findEntityAtWorldPos(worldPos);
@@ -132,11 +140,19 @@ export class InteractionManager {
     }
   };
 
-  private handlePointerUp = (): void => {
+  private handlePointerUp = (e: PointerEvent): void => {
     this.isPointerDown = false;
     this.isDraggingNode = false;
     this.draggedEntityId = null;
     this.canvas.style.cursor = 'grab';
+
+    try {
+      if (this.canvas.hasPointerCapture(e.pointerId)) {
+        this.canvas.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Ignore
+    }
   };
 
   private handleWheel = (e: WheelEvent): void => {
