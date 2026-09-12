@@ -144,45 +144,92 @@ export class CanvasRenderer {
     ctx.stroke();
   }
 
+  private getWireGeometry(from: Entity, to: Entity) {
+    const w = CanvasRenderer.NODE_WIDTH;
+    const h = CanvasRenderer.NODE_HEIGHT;
+
+    const dx = to.position.x - from.position.x;
+    const dy = to.position.y - from.position.y;
+
+    // Primarily vertical if vertical separation is significantly larger than horizontal separation
+    const isVertical = Math.abs(dx) < Math.abs(dy) * 0.7;
+
+    let startX: number, startY: number, endX: number, endY: number;
+    let cp1x: number, cp1y: number, cp2x: number, cp2y: number;
+
+    if (isVertical) {
+      if (dy >= 0) {
+        // 'to' is below 'from'
+        startX = from.position.x;
+        startY = from.position.y + h / 2;
+        endX = to.position.x;
+        endY = to.position.y - h / 2;
+      } else {
+        // 'to' is above 'from'
+        startX = from.position.x;
+        startY = from.position.y - h / 2;
+        endX = to.position.x;
+        endY = to.position.y + h / 2;
+      }
+      const midY = (startY + endY) / 2;
+      cp1x = startX;
+      cp1y = midY;
+      cp2x = endX;
+      cp2y = midY;
+    } else {
+      if (dx >= 0) {
+        // 'to' is to the right of 'from'
+        startX = from.position.x + w / 2;
+        startY = from.position.y;
+        endX = to.position.x - w / 2;
+        endY = to.position.y;
+      } else {
+        // 'to' is to the left of 'from'
+        startX = from.position.x - w / 2;
+        startY = from.position.y;
+        endX = to.position.x + w / 2;
+        endY = to.position.y;
+      }
+      const midX = (startX + endX) / 2;
+      cp1x = midX;
+      cp1y = startY;
+      cp2x = midX;
+      cp2y = endY;
+    }
+
+    return { startX, startY, cp1x, cp1y, cp2x, cp2y, endX, endY };
+  }
+
   private drawConnection(
     ctx: CanvasRenderingContext2D,
     conn: Connection,
     from: Entity,
     to: Entity
   ): void {
-    const startX = from.position.x + CanvasRenderer.NODE_WIDTH / 2;
-    const startY = from.position.y;
-    const endX = to.position.x - CanvasRenderer.NODE_WIDTH / 2;
-    const endY = to.position.y;
-
-    const dx = endX - startX;
-    const cp1x = startX + dx * 0.5;
-    const cp1y = startY;
-    const cp2x = startX + dx * 0.5;
-    const cp2y = endY;
+    const geo = this.getWireGeometry(from, to);
 
     ctx.save();
 
     // Outer glow
     ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, endX, endY);
+    ctx.moveTo(geo.startX, geo.startY);
+    ctx.bezierCurveTo(geo.cp1x, geo.cp1y, geo.cp2x, geo.cp2y, geo.endX, geo.endY);
     ctx.strokeStyle = 'rgba(14, 165, 233, 0.15)';
     ctx.lineWidth = 6;
     ctx.stroke();
 
     // Main wire line
     ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, endX, endY);
+    ctx.moveTo(geo.startX, geo.startY);
+    ctx.bezierCurveTo(geo.cp1x, geo.cp1y, geo.cp2x, geo.cp2y, geo.endX, geo.endY);
     ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
     ctx.lineWidth = 2;
     ctx.stroke();
 
     // Animated signal dashes traveling along the wire
     ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, endX, endY);
+    ctx.moveTo(geo.startX, geo.startY);
+    ctx.bezierCurveTo(geo.cp1x, geo.cp1y, geo.cp2x, geo.cp2y, geo.endX, geo.endY);
     ctx.strokeStyle = 'rgba(125, 211, 252, 0.8)';
     ctx.lineWidth = 2;
     ctx.setLineDash([4, 16]);
@@ -191,8 +238,8 @@ export class CanvasRenderer {
     ctx.setLineDash([]);
 
     // Connection badge in center
-    const midX = (startX + endX) / 2;
-    const midY = (startY + endY) / 2;
+    const midX = (geo.startX + geo.endX) / 2;
+    const midY = (geo.startY + geo.endY) / 2;
 
     ctx.fillStyle = '#0f172a';
     ctx.strokeStyle = 'rgba(56, 189, 248, 0.3)';
@@ -216,23 +263,13 @@ export class CanvasRenderer {
     from: Entity,
     to: Entity
   ): void {
-    const isReverse = from.position.x > to.position.x;
-    const startX = isReverse ? from.position.x - CanvasRenderer.NODE_WIDTH / 2 : from.position.x + CanvasRenderer.NODE_WIDTH / 2;
-    const startY = from.position.y;
-    const endX = isReverse ? to.position.x + CanvasRenderer.NODE_WIDTH / 2 : to.position.x - CanvasRenderer.NODE_WIDTH / 2;
-    const endY = to.position.y;
-
-    const dx = endX - startX;
-    const cp1x = startX + dx * 0.5;
-    const cp1y = startY;
-    const cp2x = startX + dx * 0.5;
-    const cp2y = endY;
+    const geo = this.getWireGeometry(from, to);
 
     // Cubic bezier evaluation at t = packet.progress
     const t = packet.progress;
     const inv = 1 - t;
-    const px = inv * inv * inv * startX + 3 * inv * inv * t * cp1x + 3 * inv * t * t * cp2x + t * t * t * endX;
-    const py = inv * inv * inv * startY + 3 * inv * inv * t * cp1y + 3 * inv * t * t * cp2y + t * t * t * endY;
+    const px = inv * inv * inv * geo.startX + 3 * inv * inv * t * geo.cp1x + 3 * inv * t * t * geo.cp2x + t * t * t * geo.endX;
+    const py = inv * inv * inv * geo.startY + 3 * inv * inv * t * geo.cp1y + 3 * inv * t * t * geo.cp2y + t * t * t * geo.endY;
 
     ctx.save();
 
@@ -407,7 +444,7 @@ export class CanvasRenderer {
       ctx.textAlign = 'left';
       ctx.fillStyle = '#c084fc';
       ctx.font = '600 10px Inter, sans-serif';
-      ctx.fillText('⚡ Edge Cache: 80% Hit Rate', x + 14, y + 48);
+      ctx.fillText('⚡ Edge Cache: 80%', x + 14, y + 48);
 
       ctx.fillStyle = '#94a3b8';
       ctx.font = '10px Inter, sans-serif';
@@ -416,12 +453,12 @@ export class CanvasRenderer {
       ctx.textAlign = 'right';
       ctx.font = '10px "Fira Code", monospace';
       ctx.fillStyle = '#10b981';
-      ctx.fillText('FAST 8ms', x + w - 14, y + 48);
+      ctx.fillText('8ms FAST', x + w - 14, y + 48);
     } else if (entity.type === 'load_balancer') {
       ctx.textAlign = 'left';
       ctx.fillStyle = '#94a3b8';
       ctx.font = '10px Inter, sans-serif';
-      ctx.fillText('Algorithm: Round Robin', x + 14, y + 48);
+      ctx.fillText('Algo: Round Robin', x + 14, y + 48);
       ctx.fillText('Target Hosts: 2 Active', x + 14, y + 66);
 
       ctx.textAlign = 'right';
