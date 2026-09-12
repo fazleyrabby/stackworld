@@ -817,12 +817,15 @@ export class SimulationEngine {
           if (currentTargetId === 'cdn-edge-1') {
             const isCacheHit = Math.random() < 0.8;
             if (isCacheHit) {
+              const reversePath = packet.path.slice(0, nextHopIdx + 1).reverse();
               packet.type = 'response';
               packet.isCached = true;
-              packet.fromId = 'cdn-edge-1';
-              packet.toId = 'user-group-1';
+              packet.path = reversePath;
+              packet.currentHopIndex = 0;
+              packet.fromId = reversePath[0];
+              packet.toId = reversePath[1];
               packet.progress = 0.0;
-              packet.speed = 3.2;
+              packet.speed = 3.6;
               continue;
             } else {
               packet.currentHopIndex = nextHopIdx;
@@ -874,13 +877,25 @@ export class SimulationEngine {
             db.resources.connections.current--;
           }
         } else if (packet.type === 'sql_result') {
-          // SQL result returned to API -> API creates HTTP response to User
+          // SQL result returned to API -> API creates HTTP response back through Frontend to User
           packet.type = 'response';
+          packet.path = ['api-1', 'frontend-1', 'user-group-1'];
+          packet.currentHopIndex = 0;
           packet.fromId = 'api-1';
-          packet.toId = 'user-group-1';
+          packet.toId = 'frontend-1';
           packet.progress = 0.0;
-          packet.speed = 3.0;
-        } else {
+          packet.speed = 3.2;
+          continue;
+        } else if (packet.type === 'response') {
+          const nextHopIdx = packet.currentHopIndex + 1;
+          if (nextHopIdx < packet.path.length - 1) {
+            packet.currentHopIndex = nextHopIdx;
+            packet.fromId = packet.path[nextHopIdx];
+            packet.toId = packet.path[nextHopIdx + 1];
+            packet.progress = 0.0;
+            continue;
+          }
+
           // Response arrived back to User
           packetsToRemove.push(id);
           this.handleResponseArrival(packet);
@@ -915,16 +930,17 @@ export class SimulationEngine {
     const isCpuCrash = server.resources.cpu.utilizationPct > 100;
     const failed = isConnectionExhausted || isCpuCrash;
 
+    const reversePath = [...packet.path].reverse();
     const respId = `pkt-${this.nextPacketId++}`;
     const responsePacket: Packet = {
       id: respId,
-      fromId: server.id,
-      toId: user.id,
+      fromId: reversePath[0],
+      toId: reversePath[1],
       type: 'response',
-      path: [server.id, user.id],
+      path: reversePath,
       currentHopIndex: 0,
       progress: 0.0,
-      speed: failed ? 1.6 : 2.5,
+      speed: failed ? 1.6 : 2.8,
       status: failed ? 'dropped' : 'in_flight',
       sizeKb: failed ? 0.3 : 18.4,
       createdAtTick: packet.createdAtTick,

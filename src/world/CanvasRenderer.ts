@@ -216,10 +216,10 @@ export class CanvasRenderer {
     from: Entity,
     to: Entity
   ): void {
-    const isRequest = packet.type === 'request';
-    const startX = isRequest ? from.position.x + CanvasRenderer.NODE_WIDTH / 2 : from.position.x - CanvasRenderer.NODE_WIDTH / 2;
+    const isReverse = from.position.x > to.position.x;
+    const startX = isReverse ? from.position.x - CanvasRenderer.NODE_WIDTH / 2 : from.position.x + CanvasRenderer.NODE_WIDTH / 2;
     const startY = from.position.y;
-    const endX = isRequest ? to.position.x - CanvasRenderer.NODE_WIDTH / 2 : to.position.x + CanvasRenderer.NODE_WIDTH / 2;
+    const endX = isReverse ? to.position.x + CanvasRenderer.NODE_WIDTH / 2 : to.position.x - CanvasRenderer.NODE_WIDTH / 2;
     const endY = to.position.y;
 
     const dx = endX - startX;
@@ -236,6 +236,7 @@ export class CanvasRenderer {
 
     ctx.save();
 
+    const isRequest = packet.type === 'request';
     let color = '#38bdf8'; // Request Cyan
     if (packet.isCached) {
       color = '#c084fc'; // Purple / Violet Edge Cache Hit
