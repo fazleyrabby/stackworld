@@ -1,0 +1,117 @@
+import { ScenarioDefinition } from './types';
+
+export const backendDbScenario: ScenarioDefinition = {
+  id: 'scenario-2-backend-db',
+  title: 'The Slow Database Incident',
+  difficulty: 'Intermediate',
+  estimatedMinutes: 6,
+  prerequisites: ['HTTP/REST APIs', 'Relational Databases', 'SQL Basics'],
+  learningObjectives: [
+    'Understand how backend APIs interact with persistent databases over TCP',
+    'Observe connection pool exhaustion caused by slow sequential table scans',
+    'Evaluate why database indexes solve query latency without hardware upgrades',
+    'Understand the role of connection poolers (PgBouncer) under high concurrency',
+  ],
+  startingBudgetMonthly: 45.0,
+  stages: [
+    {
+      id: 'stage_baseline',
+      title: '1. Multi-Tier Application Baseline',
+      targetRps: 10,
+      instructions: 'Requests flow from Users to Frontend, then to Backend API, which queries PostgreSQL.',
+    },
+    {
+      id: 'stage_surge',
+      title: '2. Unindexed Query Spike Triggered',
+      targetRps: 28,
+      instructions: 'Users start searching order history. An unindexed query triggers full sequential table scans!',
+    },
+    {
+      id: 'stage_degraded',
+      title: '3. Database Connection Pool Exhausted',
+      targetRps: 30,
+      instructions: 'PostgreSQL max_connections reached 20/20! Queries are queuing and backend requests are failing.',
+    },
+    {
+      id: 'stage_solution_applied',
+      title: '4. Verifying Query Throughput',
+      targetRps: 30,
+      instructions: 'Sustain traffic for 12 seconds with database latency under 15ms and error rate < 1%.',
+    },
+    {
+      id: 'stage_victory',
+      title: '5. Database Scaled & Optimized',
+      targetRps: 30,
+      instructions: 'Incident resolved! Your database is performing with optimal execution plans.',
+    },
+  ],
+  availableSolutions: [
+    {
+      id: 'sol_add_db_index',
+      name: 'Create B-Tree Database Index',
+      tagline: 'CREATE INDEX idx_orders_status ON orders(status, created_at);',
+      category: 'vertical',
+      costMonthlyDelta: 0.0,
+      complexity: 'Low',
+      reliability: 'Very High',
+      description: 'Add a composite B-Tree index on orders(status, created_at). Transforms a 500,000-row Sequential Scan (O(N)) into an Index Scan (O(log N)). Query time plunges from 850ms to 3ms!',
+      pros: [
+        'Zero additional infrastructure cost ($0/month)',
+        'Cuts query execution time by 99.6% (850ms → 3ms)',
+        'Frees all blocked connection sockets immediately',
+      ],
+      cons: [
+        'Slightly slows down INSERT and UPDATE write throughput',
+        'Consumes modest disk space for index tree structure',
+      ],
+      appliedExplanation: 'Index created! Query planner switched from Seq Scan to Index Scan. Latency dropped to 3ms.',
+    },
+    {
+      id: 'sol_pgbouncer',
+      name: 'Deploy PgBouncer Connection Pooler',
+      tagline: 'Transaction-level connection multiplexing proxy',
+      category: 'horizontal',
+      costMonthlyDelta: 10.0,
+      complexity: 'Medium',
+      reliability: 'High',
+      description: 'Deploy PgBouncer in front of PostgreSQL. Multiplexes hundreds of incoming backend API clients over 8 persistent server sockets, preventing "too many clients" crashes.',
+      pros: [
+        'Completely eliminates connection pool exhaustion crashes',
+        'Reduces backend connection handshake overhead',
+        'Industry standard for high-concurrency microservices',
+      ],
+      cons: [
+        'Costs +$10/month for pooler instance',
+        'Does NOT speed up the unindexed slow query itself',
+        'Transaction pooling disables session-level features (e.g. SET temp tables)',
+      ],
+      appliedExplanation: 'PgBouncer proxy active! Client connections multiplexed safely over 8 database sockets.',
+    },
+    {
+      id: 'sol_upgrade_db_tier',
+      name: 'Upgrade Database Instance (Scale Up)',
+      tagline: 'Upsize to 4 vCPUs / 8GB RAM managed database tier',
+      category: 'vertical',
+      costMonthlyDelta: 35.0,
+      complexity: 'Low',
+      reliability: 'Moderate',
+      description: 'Bruteforce the problem by throwing more hardware at it: upgrade to a 4 vCPU / 8GB RAM cloud database instance. The sequential scan runs faster in memory (~180ms), but remains inefficient.',
+      pros: [
+        'More CPU cores and larger RAM buffer pool',
+        'Temporarily accommodates sloppy unoptimized queries',
+        'Managed provider handles instance migration',
+      ],
+      cons: [
+        'Highest cost impact (+ $35/month recurring)',
+        'Anti-pattern: Hardware scaling does not cure bad indexing',
+        'Will degrade again as database table continues to grow',
+      ],
+      appliedExplanation: 'Database instance upsized. Sequential scans run somewhat faster, but disk I/O remains elevated.',
+    },
+  ],
+  successConditions: {
+    minSustainedSeconds: 12,
+    maxErrorRate: 0.015,
+    requiredHealth: 'HEALTHY',
+  },
+};

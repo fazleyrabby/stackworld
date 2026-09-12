@@ -1,7 +1,7 @@
 import React from 'react';
 import { SimulationSnapshot } from '../shared/types';
 import { useUiStore } from '../state/useUiStore';
-import { X, Server, Users, Cpu, HardDrive, Wifi, Activity, Terminal } from 'lucide-react';
+import { X, Server, Users, Cpu, HardDrive, Wifi, Activity, Terminal, Database, Layers } from 'lucide-react';
 
 interface InspectorProps {
   snapshot: SimulationSnapshot;
@@ -18,7 +18,9 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
   const entity = snapshot.entities.find((e) => e.id === selectedEntityId);
   if (!entity) return null;
 
-  const isServer = entity.type === 'static_host' || entity.type === 'server';
+  const isServer = entity.type === 'static_host' || entity.type === 'server' || entity.type === 'api' || entity.type === 'database';
+  const isDb = entity.type === 'database';
+  const isPooler = entity.type === 'pgbouncer';
 
   const cpuPct = Math.round(entity.resources.cpu.utilizationPct);
   const memPct = Math.round(entity.resources.memory.utilizationPct);
@@ -30,13 +32,20 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
     return 'var(--cyan)';
   };
 
+  const getNodeIcon = () => {
+    if (entity.type === 'database') return <Database size={16} />;
+    if (entity.type === 'pgbouncer') return <Layers size={16} />;
+    if (isServer) return <Server size={16} />;
+    return <Users size={16} />;
+  };
+
   return (
     <aside className="inspector-panel">
       {/* Header */}
       <div className="inspector-header">
         <div className="inspector-header-left">
           <div className="node-icon-box">
-            {isServer ? <Server size={16} /> : <Users size={16} />}
+            {getNodeIcon()}
           </div>
           <div>
             <h2 className="node-title">{entity.name}</h2>
@@ -169,6 +178,60 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
                   <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--emerald)' }}>
                     ${entity.costMonthly.toFixed(2)} / month
                   </span>
+                </div>
+
+                {/* Database Execution Profile */}
+                {isDb && (
+                  <div className="metric-card" style={{ border: Boolean(entity.configuration.hasIndex) ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(245, 158, 11, 0.4)' }}>
+                    <div className="metric-card-top">
+                      <div className="metric-card-title">
+                        <Database size={14} color={Boolean(entity.configuration.hasIndex) ? 'var(--emerald)' : 'var(--amber)'} />
+                        <span>Query Execution Engine</span>
+                      </div>
+                      <span className={`health-pill ${Boolean(entity.configuration.hasIndex) ? 'health-healthy' : 'health-degraded'}`} style={{ padding: '2px 6px', fontSize: '10px', minWidth: 'unset' }}>
+                        {Boolean(entity.configuration.hasIndex) ? 'INDEX SCAN' : 'FULL TABLE SCAN'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px', marginTop: '6px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Target Table:</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>500,000 orders</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Query Latency:</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: Boolean(entity.configuration.hasIndex) ? 'var(--emerald)' : 'var(--rose)' }}>
+                          {Boolean(entity.configuration.hasIndex) ? '3ms (Optimal)' : '850ms (Seq Scan)'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Active Query:</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--amber)', fontSize: '10px' }}>SELECT * FROM orders...</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : isPooler ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div className="metric-card">
+                  <div className="metric-card-title" style={{ color: 'var(--cyan)', fontWeight: 600 }}>
+                    <Layers size={14} />
+                    <span>Connection Multiplexer</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px', marginTop: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Pool Mode:</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--emerald)' }}>transaction</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Server Connections:</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>8 persistent</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Max Client Sockets:</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>500 clients</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : (

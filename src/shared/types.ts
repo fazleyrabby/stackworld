@@ -12,8 +12,10 @@ export type EntityType =
   | 'static_host' 
   | 'dns' 
   | 'cdn'
-  | 'server' 
+  | 'api'
   | 'database' 
+  | 'pgbouncer'
+  | 'server' 
   | 'load_balancer';
 
 export interface Vector2D {
@@ -57,6 +59,9 @@ export interface Entity {
     port?: number;
     version?: string;
     cacheHitRatio?: number;
+    activeQueries?: number;
+    hasIndex?: boolean;
+    hasPooler?: boolean;
     [key: string]: unknown;
   };
   costMonthly: number;
@@ -75,7 +80,7 @@ export interface Packet {
   id: string;
   fromId: string;
   toId: string;
-  type: 'request' | 'response';
+  type: 'request' | 'response' | 'sql_query' | 'sql_result';
   path: string[];            // Multi-hop path: e.g. ['user', 'dns', 'host']
   currentHopIndex: number;   // Current index in path
   progress: number;          // 0.0 to 1.0 along the current hop
@@ -84,6 +89,7 @@ export interface Packet {
   sizeKb: number;
   createdAtTick: number;
   isCached?: boolean;        // True if served from CDN edge cache
+  sqlQuery?: string;         // SQL statement for database queries
 }
 
 export interface SimulationMetrics {

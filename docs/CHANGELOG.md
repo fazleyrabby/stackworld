@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.3.0] - 2026-09-12
+
+### Added
+- **Phase 4 & Phase 5: Backend API & PostgreSQL Database Simulation**:
+  - New Scenario 2: *"The Slow Database Incident"* (`scenario-2-backend-db`), modeling multi-tier web traffic (`User → Frontend → Backend API → PostgreSQL 16`).
+  - Implemented SQL query packet dynamics with amber visual particles (`#f59e0b`) and query latency simulation.
+  - Modeled database connection pool exhaustion (20/20 max connections) triggered by unindexed sequential table scans over 500,000 rows.
+  - Three architectural remedies:
+    1. **B-Tree Database Index**: Eliminates sequential table scans, cutting query execution latency from 850ms to 3ms at $0/mo cost.
+    2. **PgBouncer Connection Pooler**: Multiplexes hundreds of API client sockets over 8 persistent backend database sockets.
+    3. **Vertical Database Tier Upgrade**: Upsizes instance to 4 vCPUs / 8GB RAM.
+  - Interactive **Scenario Selector** in `TopBar.tsx` allowing instantaneous switching between scenarios.
+  - Enhanced **Inspector** displaying live Query Execution Engine status, table scan modes, query latency, and connection multiplexing metrics.
+  - Added 7 unit tests in `tests/BackendDb.test.ts` (bringing test suite to 21 passing tests).
+
+---
+
 ## [0.2.0] - 2026-09-12
 
 ### Added

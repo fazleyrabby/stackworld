@@ -13,6 +13,9 @@ import { VictoryModal } from './ui/VictoryModal';
 export function App() {
   const engine = useMemo(() => new SimulationEngine({ initialRps: 6 }), []);
   const [snapshot, setSnapshot] = useState<SimulationSnapshot>(() => engine.getSnapshot());
+  const [activeScenarioId, setActiveScenarioId] = useState<'scenario-1-static-site' | 'scenario-2-backend-db'>(
+    'scenario-1-static-site'
+  );
 
   useEffect(() => {
     engine.start();
@@ -27,13 +30,22 @@ export function App() {
     };
   }, [engine]);
 
+  const handleSelectScenario = (scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db') => {
+    setActiveScenarioId(scenarioId);
+    engine.loadScenario(scenarioId);
+  };
+
   return (
     <div className="app-container">
       {/* 2D Canvas Simulation World */}
       <WorldViewport engine={engine} />
 
       {/* Top HUD Bar */}
-      <TopBar snapshot={snapshot} />
+      <TopBar
+        snapshot={snapshot}
+        activeScenarioId={activeScenarioId}
+        onSelectScenario={handleSelectScenario}
+      />
 
       {/* Mission / Objective Tracker Bar */}
       <ObjectiveTracker

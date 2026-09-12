@@ -5,9 +5,11 @@ import { useUiStore } from '../state/useUiStore';
 
 interface TopBarProps {
   snapshot: SimulationSnapshot;
+  activeScenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db';
+  onSelectScenario: (scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db') => void;
 }
 
-export const TopBar: React.FC<TopBarProps> = ({ snapshot }) => {
+export const TopBar: React.FC<TopBarProps> = ({ snapshot, activeScenarioId, onSelectScenario }) => {
   const toggleEventLog = useUiStore((state) => state.toggleEventLog);
   const isEventLogOpen = useUiStore((state) => state.isEventLogOpen);
 
@@ -49,7 +51,15 @@ export const TopBar: React.FC<TopBarProps> = ({ snapshot }) => {
         <div className="scenario-badge">
           <Layers size={13} color="var(--cyan)" />
           <span className="label">Scenario:</span>
-          <span className="value">Phase 1 — Static Host</span>
+          <select
+            value={activeScenarioId}
+            onChange={(e) => onSelectScenario(e.target.value as 'scenario-1-static-site' | 'scenario-2-backend-db')}
+            className="scenario-select"
+            aria-label="Select simulation scenario"
+          >
+            <option value="scenario-1-static-site">Phase 1: Keep Website Online</option>
+            <option value="scenario-2-backend-db">Phase 2: The Slow Database Incident</option>
+          </select>
         </div>
       </div>
 
@@ -93,7 +103,9 @@ export const TopBar: React.FC<TopBarProps> = ({ snapshot }) => {
           <span className="tabular-num-slot budget-slot">
             ${snapshot.metrics.monthlyCost.toFixed(2)}
           </span>
-          <span style={{ color: 'var(--text-muted)' }}>/ $20.00</span>
+          <span style={{ color: 'var(--text-muted)' }}>
+            / ${activeScenarioId === 'scenario-2-backend-db' ? '45.00' : '20.00'}
+          </span>
         </div>
 
         <button

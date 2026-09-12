@@ -234,29 +234,33 @@ export class CanvasRenderer {
     const px = inv * inv * inv * startX + 3 * inv * inv * t * cp1x + 3 * inv * t * t * cp2x + t * t * t * endX;
     const py = inv * inv * inv * startY + 3 * inv * inv * t * cp1y + 3 * inv * t * t * cp2y + t * t * t * endY;
 
-    ctx.save();
-
     let color = '#38bdf8'; // Request Cyan
     if (packet.isCached) {
       color = '#c084fc'; // Purple / Violet Edge Cache Hit
+    } else if (packet.type === 'sql_query') {
+      color = '#f59e0b'; // Amber SQL Query
+    } else if (packet.type === 'sql_result') {
+      color = packet.status === 'dropped' ? '#f43f5e' : '#eab308'; // Amber/Gold SQL Result
     } else if (!isRequest) {
       color = packet.status === 'dropped' ? '#f43f5e' : '#10b981'; // Green success or Red dropped
     }
 
     // Outer Glow
-    const gradient = ctx.createRadialGradient(px, py, 0, px, py, packet.isCached ? 13 : 10);
+    const isSql = packet.type === 'sql_query' || packet.type === 'sql_result';
+    const radius = packet.isCached ? 13 : isSql ? 12 : 10;
+    const gradient = ctx.createRadialGradient(px, py, 0, px, py, radius);
     gradient.addColorStop(0, color);
     gradient.addColorStop(0.6, `${color}44`);
     gradient.addColorStop(1, 'transparent');
     ctx.fillStyle = gradient;
     ctx.beginPath();
-    ctx.arc(px, py, packet.isCached ? 13 : 10, 0, Math.PI * 2);
+    ctx.arc(px, py, radius, 0, Math.PI * 2);
     ctx.fill();
 
     // Inner Core
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(px, py, packet.isCached ? 4.5 : 3.5, 0, Math.PI * 2);
+    ctx.arc(px, py, packet.isCached || isSql ? 4.2 : 3.5, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -330,6 +334,42 @@ export class CanvasRenderer {
 
       this.drawMiniBar(ctx, x + 12, y + 46, w - 24, 'CPU', `${cpuPct}%`, cpuPct, this.getUtilizationColor(cpuPct));
       this.drawMiniBar(ctx, x + 12, y + 70, w - 24, 'RAM', `${memPct}%`, memPct, this.getUtilizationColor(memPct));
+    } else if (entity.type === 'api') {
+      const cpuPct = Math.round(entity.resources.cpu.utilizationPct);
+      const connPct = Math.round((entity.resources.connections.current / entity.resources.connections.max) * 100);
+
+      this.drawMiniBar(ctx, x + 12, y + 46, w - 24, 'CPU', `${cpuPct}%`, cpuPct, this.getUtilizationColor(cpuPct));
+      this.drawMiniBar(ctx, x + 12, y + 70, w - 24, 'Workers', `${entity.resources.connections.current}/${entity.resources.connections.max}`, connPct, this.getUtilizationColor(connPct));
+    } else if (entity.type === 'database') {
+      const conn = entity.resources.connections;
+      const connPct = Math.round((conn.current / conn.max) * 100);
+      const hasIndex = Boolean(entity.configuration.hasIndex);
+
+      this.drawMiniBar(ctx, x + 12, y + 46, w - 24, 'Pool', `${conn.current}/${conn.max}`, connPct, this.getUtilizationColor(connPct));
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = hasIndex ? '#10b981' : '#f59e0b';
+      ctx.font = '600 10px Inter, sans-serif';
+      ctx.fillText(hasIndex ? '⚡ B-Tree Index: Active' : '⚠️ Seq Scan: 500k rows', x + 14, y + 78);
+
+      ctx.textAlign = 'right';
+      ctx.font = '10px "Fira Code", monospace';
+      ctx.fillStyle = hasIndex ? '#10b981' : '#f43f5e';
+      ctx.fillText(hasIndex ? '3ms' : '850ms', x + w - 14, y + 78);
+    } else if (entity.type === 'pgbouncer') {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#10b981';
+      ctx.font = '600 10px Inter, sans-serif';
+      ctx.fillText('⚡ Transaction Pooler', x + 14, y + 48);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px Inter, sans-serif';
+      ctx.fillText('Mode: Transaction (8 DB sockets)', x + 14, y + 66);
+
+      ctx.textAlign = 'right';
+      ctx.font = '10px "Fira Code", monospace';
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText('500 MAX', x + w - 14, y + 48);
     } else if (entity.type === 'dns') {
       ctx.textAlign = 'left';
       ctx.fillStyle = '#94a3b8';

@@ -236,6 +236,27 @@ html, body, #root {
   font-weight: 600;
 }
 
+.scenario-select {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+.scenario-select:focus-visible {
+  outline: 1px solid var(--cyan);
+  border-radius: 4px;
+}
+
+.scenario-select option {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
 /* Telemetry Pills */
 .telemetry-pill {
   display: flex;

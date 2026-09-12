@@ -5,10 +5,10 @@
  * STRICT RULE: Zero React or UI dependencies.
  * 
  * Supports:
- * - Deterministic fixed 20 Hz tick loop
- * - Multi-hop routing: User -> DNS -> [CDN / LB] -> Static Host
- * - Scenario progression (Baseline -> Surge -> Degraded -> Solution -> Victory)
- * - Dynamic live topology mutations (Vertical scaling, Edge CDN insertion, Horizontal LB)
+ * - Scenario 1: Keep The Website Online (Static Host + DNS + CDN/LB)
+ * - Scenario 2: The Slow Database Incident (Frontend + Backend API + PostgreSQL)
+ * - Dynamic live topology mutations
+ * - Multi-tier routing and SQL query simulation
  */
 
 import {
@@ -23,16 +23,19 @@ import {
 } from '../shared/types';
 import { SimulationClock } from './Clock';
 import { staticSiteScenario } from '../scenarios/staticSiteScenario';
-import { ScenarioState } from '../scenarios/types';
+import { backendDbScenario } from '../scenarios/backendDbScenario';
+import { ScenarioDefinition, ScenarioState } from '../scenarios/types';
 
 export interface SimulationEngineConfig {
   seed?: number;
   initialRps?: number;
+  initialScenarioId?: string;
 }
 
 export class SimulationEngine {
   public readonly clock: SimulationClock;
 
+  private activeScenario: ScenarioDefinition = staticSiteScenario;
   private entities: Map<string, Entity> = new Map();
   private connections: Map<string, Connection> = new Map();
   private packets: Map<string, Packet> = new Map();
@@ -70,7 +73,11 @@ export class SimulationEngine {
     this.clock = new SimulationClock(20);
     this.targetRps = config.initialRps ?? 6;
 
-    this.initializeDefaultWorld();
+    if (config.initialScenarioId === 'scenario-2-backend-db') {
+      this.loadScenario('scenario-2-backend-db');
+    } else {
+      this.loadScenario('scenario-1-static-site');
+    }
 
     this.clock.subscribe((tick, _simTimeSeconds, dtSeconds) => {
       this.tick(tick, _simTimeSeconds, dtSeconds);
@@ -121,6 +128,10 @@ export class SimulationEngine {
     return this.targetRps;
   }
 
+  public getActiveScenario(): ScenarioDefinition {
+    return this.activeScenario;
+  }
+
   public injectSpike(count: number = 25): void {
     this.pendingRequestAccumulator += count;
     this.logEvent('warn', `Traffic spike injected: +${count} concurrent requests!`);
@@ -151,19 +162,51 @@ export class SimulationEngine {
   }
 
   /**
+   * Load either Scenario 1 (Static Site) or Scenario 2 (Backend + Database)
+   */
+  public loadScenario(scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db'): void {
+    this.clock.reset();
+    this.entities.clear();
+    this.connections.clear();
+    this.packets.clear();
+    this.events = [];
+    this.completedRequestsWindow = [];
+    this.pendingRequestAccumulator = 0;
+
+    if (scenarioId === 'scenario-2-backend-db') {
+      this.activeScenario = backendDbScenario;
+      this.targetRps = 10;
+      this.metrics.monthlyCost = 35.0;
+      this.initializeScenario2();
+    } else {
+      this.activeScenario = staticSiteScenario;
+      this.targetRps = 6;
+      this.metrics.monthlyCost = 15.0;
+      this.initializeScenario1();
+    }
+
+    this.scenarioState = {
+      currentStageId: 'stage_baseline',
+      selectedSolutionId: null,
+      sustainedHealthySeconds: 0,
+      isSolutionModalOpen: false,
+      isVictoryModalOpen: false,
+    };
+
+    this.emitSnapshot();
+  }
+
+  /**
    * Applies an architectural solution chosen by the learner.
    */
   public applySolution(solutionId: string): void {
-    const solution = staticSiteScenario.availableSolutions.find((s) => s.id === solutionId);
-    if (!solution) return;
-
     this.scenarioState.selectedSolutionId = solutionId;
     this.scenarioState.isSolutionModalOpen = false;
     this.scenarioState.currentStageId = 'stage_solution_applied';
     this.scenarioState.sustainedHealthySeconds = 0;
 
+    // Handle Scenario 1 Solutions
     if (solutionId === 'sol_vertical_scale') {
-      // Scale server vertically
       const server = this.entities.get('server-prod-1');
       if (server) {
         server.name = 'Web Host (4 vCPU / 4GB)';
@@ -176,7 +219,6 @@ export class SimulationEngine {
       this.metrics.monthlyCost += 15.0;
       this.logEvent('success', 'Architecture updated: Server vertically upgraded to 4 vCPUs / 4GB RAM.');
     } else if (solutionId === 'sol_add_cdn') {
-      // Deploy Edge CDN between DNS and Host
       const cdn: Entity = {
         id: 'cdn-edge-1',
         type: 'cdn',
@@ -198,7 +240,6 @@ export class SimulationEngine {
 
       this.entities.set(cdn.id, cdn);
 
-      // Reconnect: DNS -> CDN, CDN -> Server
       this.connections.delete('conn-dns-to-server');
       this.connections.set('conn-dns-to-cdn', {
         id: 'conn-dns-to-cdn',
@@ -218,9 +259,8 @@ export class SimulationEngine {
       });
 
       this.metrics.monthlyCost += 5.0;
-      this.logEvent('success', 'Architecture updated: Edge CDN deployed! 80% of static traffic will be cached.');
+      this.logEvent('success', 'Architecture updated: Edge CDN deployed! 80% of static traffic cached.');
     } else if (solutionId === 'sol_load_balancer') {
-      // Deploy Load Balancer and second server
       const lb: Entity = {
         id: 'lb-1',
         type: 'load_balancer',
@@ -259,7 +299,6 @@ export class SimulationEngine {
         costMonthly: 15.0,
       };
 
-      // Reposition Server 1
       const server1 = this.entities.get('server-prod-1');
       if (server1) {
         server1.name = 'Web Host 01';
@@ -299,6 +338,75 @@ export class SimulationEngine {
       this.logEvent('success', 'Architecture updated: Nginx Load Balancer and Host 02 deployed.');
     }
 
+    // Handle Scenario 2 Solutions
+    if (solutionId === 'sol_add_db_index') {
+      const db = this.entities.get('postgres-1');
+      if (db) {
+        db.configuration.hasIndex = true;
+        db.configuration.unindexedScan = false;
+        db.configuration.slowQueryThresholdMs = 4;
+      }
+      this.logEvent('success', 'CREATE INDEX idx_orders_status ON orders(status, created_at) executed! Scan time: 3ms.');
+    } else if (solutionId === 'sol_pgbouncer') {
+      const pgbouncer: Entity = {
+        id: 'pgbouncer-1',
+        type: 'pgbouncer',
+        name: 'PgBouncer Pooler',
+        position: { x: 210, y: 0 },
+        status: 'HEALTHY',
+        resources: {
+          cpu: { capacityCores: 1, usedCores: 0.1, utilizationPct: 8.0 },
+          memory: { capacityMb: 512, usedMb: 42, utilizationPct: 8.2 },
+          connections: { current: 0, max: 1000 },
+        },
+        configuration: {
+          poolMode: 'transaction',
+          defaultPoolSize: 8,
+          maxClientConn: 500,
+        },
+        costMonthly: 10.0,
+      };
+
+      const db = this.entities.get('postgres-1');
+      if (db) {
+        db.configuration.hasPooler = true;
+      }
+
+      this.entities.set(pgbouncer.id, pgbouncer);
+
+      this.connections.delete('conn-api-to-db');
+      this.connections.set('conn-api-to-pooler', {
+        id: 'conn-api-to-pooler',
+        fromId: 'api-1',
+        toId: 'pgbouncer-1',
+        bandwidthMbps: 1000,
+        latencyMs: 2,
+        currentTrafficMbps: 0,
+      });
+      this.connections.set('conn-pooler-to-db', {
+        id: 'conn-pooler-to-db',
+        fromId: 'pgbouncer-1',
+        toId: 'postgres-1',
+        bandwidthMbps: 1000,
+        latencyMs: 2,
+        currentTrafficMbps: 0,
+      });
+
+      this.metrics.monthlyCost += 10.0;
+      this.logEvent('success', 'PgBouncer connection pooler active. Client sockets multiplexed over 8 backend connections.');
+    } else if (solutionId === 'sol_upgrade_db_tier') {
+      const db = this.entities.get('postgres-1');
+      if (db) {
+        db.name = 'PostgreSQL (4 vCPU / 8GB)';
+        db.resources.cpu.capacityCores = 4;
+        db.resources.memory.capacityMb = 8192;
+        db.resources.connections.max = 80;
+        db.costMonthly += 35.0;
+      }
+      this.metrics.monthlyCost += 35.0;
+      this.logEvent('success', 'Database tier upgraded to 4 vCPUs / 8GB RAM.');
+    }
+
     this.emitSnapshot();
   }
 
@@ -335,7 +443,7 @@ export class SimulationEngine {
     this.emitSnapshot();
   }
 
-  private initializeDefaultWorld(): void {
+  private initializeScenario1(): void {
     const userGroup: Entity = {
       id: 'user-group-1',
       type: 'user',
@@ -348,7 +456,7 @@ export class SimulationEngine {
         connections: { current: 0, max: 10000 },
       },
       configuration: {
-        location: 'Global (North America / Europe / Asia)',
+        location: 'Global (North America / Europe)',
         browserClients: 240,
         protocol: 'HTTP/2',
       },
@@ -403,7 +511,6 @@ export class SimulationEngine {
     this.entities.set(dnsServer.id, dnsServer);
     this.entities.set(staticServer.id, staticServer);
 
-    // Initial Connections: User -> DNS -> Server
     this.connections.set('conn-user-to-dns', {
       id: 'conn-user-to-dns',
       fromId: userGroup.id,
@@ -422,38 +529,157 @@ export class SimulationEngine {
       currentTrafficMbps: 1.4,
     });
 
-    this.logEvent('info', 'Scenario loaded: User → Authoritative DNS → Web Host (Nginx)');
+    this.logEvent('info', 'Loaded Scenario 1: User → Authoritative DNS → Web Host (Nginx)');
+  }
+
+  private initializeScenario2(): void {
+    const userGroup: Entity = {
+      id: 'user-group-1',
+      type: 'user',
+      name: 'E-Commerce Shoppers',
+      position: { x: -340, y: 0 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 1, usedCores: 0.1, utilizationPct: 10 },
+        memory: { capacityMb: 512, usedMb: 48, utilizationPct: 9.3 },
+        connections: { current: 0, max: 10000 },
+      },
+      configuration: {
+        activeClients: 350,
+        protocol: 'HTTPS/2',
+      },
+      costMonthly: 0,
+    };
+
+    const frontend: Entity = {
+      id: 'frontend-1',
+      type: 'static_host',
+      name: 'Frontend (Nginx)',
+      position: { x: -140, y: 0 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
+        memory: { capacityMb: 2048, usedMb: 240, utilizationPct: 11.7 },
+        connections: { current: 0, max: 200 },
+      },
+      configuration: {
+        port: 443,
+        routes: '/* -> Static SPA, /api/* -> Backend API',
+      },
+      costMonthly: 10.0,
+    };
+
+    const backendApi: Entity = {
+      id: 'api-1',
+      type: 'api',
+      name: 'Order API (Node/Go)',
+      position: { x: 80, y: 0 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 4, usedCores: 0.2, utilizationPct: 12.0 },
+        memory: { capacityMb: 2048, usedMb: 480, utilizationPct: 23.4 },
+        connections: { current: 0, max: 120 },
+      },
+      configuration: {
+        runtime: 'Node.js 20 / Express',
+        port: 8080,
+        endpoint: 'GET /api/orders',
+      },
+      costMonthly: 15.0,
+    };
+
+    const postgres: Entity = {
+      id: 'postgres-1',
+      type: 'database',
+      name: 'PostgreSQL 16',
+      position: { x: 300, y: 0 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
+        memory: { capacityMb: 2048, usedMb: 620, utilizationPct: 30.2 },
+        connections: { current: 0, max: 20 }, // Max 20 connections triggers real pool exhaustion!
+      },
+      configuration: {
+        port: 5432,
+        engine: 'PostgreSQL 16.2',
+        maxConnections: 20,
+        tableRows: '500,000 orders',
+        hasIndex: false,
+        hasPooler: false,
+      },
+      costMonthly: 20.0,
+    };
+
+    this.entities.set(userGroup.id, userGroup);
+    this.entities.set(frontend.id, frontend);
+    this.entities.set(backendApi.id, backendApi);
+    this.entities.set(postgres.id, postgres);
+
+    this.connections.set('conn-user-to-fe', {
+      id: 'conn-user-to-fe',
+      fromId: userGroup.id,
+      toId: frontend.id,
+      bandwidthMbps: 1000,
+      latencyMs: 12,
+      currentTrafficMbps: 1.2,
+    });
+
+    this.connections.set('conn-fe-to-api', {
+      id: 'conn-fe-to-api',
+      fromId: frontend.id,
+      toId: backendApi.id,
+      bandwidthMbps: 1000,
+      latencyMs: 4,
+      currentTrafficMbps: 2.4,
+    });
+
+    this.connections.set('conn-api-to-db', {
+      id: 'conn-api-to-db',
+      fromId: backendApi.id,
+      toId: postgres.id,
+      bandwidthMbps: 1000,
+      latencyMs: 2,
+      currentTrafficMbps: 0.6,
+    });
+
+    this.logEvent('info', 'Loaded Scenario 2: User → Frontend → Order API → PostgreSQL 16');
   }
 
   private processScenarioProgress(dtSeconds: number): void {
     const simTime = this.clock.getSimTimeSeconds();
 
-    // Stage 1 -> Stage 2: Automatic Traffic Surge at 14s
-    if (this.scenarioState.currentStageId === 'stage_baseline' && simTime >= 12) {
+    if (this.scenarioState.currentStageId === 'stage_baseline' && simTime >= 10) {
       this.scenarioState.currentStageId = 'stage_surge';
-      this.targetRps = 38;
-      this.logEvent('warn', '🚨 Product Hunt feature launched! Traffic surging to 38 req/s.');
+      this.targetRps = this.activeScenario.stages[1].targetRps;
+      this.logEvent('warn', `🚨 ${this.activeScenario.stages[1].instructions}`);
     }
 
-    // Stage 2 -> Stage 3: Server Degradation detection
     if (this.scenarioState.currentStageId === 'stage_surge') {
-      const server = this.entities.get('server-prod-1');
-      if (server && (server.status === 'OVERLOADED' || server.status === 'FAILING' || server.resources.cpu.utilizationPct > 80)) {
-        this.scenarioState.currentStageId = 'stage_degraded';
-        this.scenarioState.isSolutionModalOpen = true;
-        this.logEvent('error', '⚠️ Server overloaded! Capacity exceeded. Please choose an architectural remedy.');
+      if (this.activeScenario.id === 'scenario-2-backend-db') {
+        const db = this.entities.get('postgres-1');
+        if (db && (db.resources.connections.current >= 16 || db.status === 'OVERLOADED' || db.status === 'FAILING')) {
+          this.scenarioState.currentStageId = 'stage_degraded';
+          this.scenarioState.isSolutionModalOpen = true;
+          this.logEvent('error', '⚠️ PostgreSQL connection pool saturated (20/20)! Unindexed query causing bottleneck.');
+        }
+      } else {
+        const server = this.entities.get('server-prod-1');
+        if (server && (server.status === 'OVERLOADED' || server.status === 'FAILING' || server.resources.cpu.utilizationPct > 80)) {
+          this.scenarioState.currentStageId = 'stage_degraded';
+          this.scenarioState.isSolutionModalOpen = true;
+          this.logEvent('error', '⚠️ Server overloaded! Capacity exceeded. Please choose an architectural remedy.');
+        }
       }
     }
 
-    // Stage 4 -> Stage 5: Solution verification (sustain 12s healthy)
     if (this.scenarioState.currentStageId === 'stage_solution_applied') {
       if (this.metrics.clusterHealth === 'HEALTHY' || this.metrics.clusterHealth === 'DEGRADED') {
         this.scenarioState.sustainedHealthySeconds += dtSeconds;
-        if (this.scenarioState.sustainedHealthySeconds >= staticSiteScenario.successConditions.minSustainedSeconds) {
+        if (this.scenarioState.sustainedHealthySeconds >= this.activeScenario.successConditions.minSustainedSeconds) {
           this.scenarioState.currentStageId = 'stage_victory';
           this.scenarioState.isVictoryModalOpen = true;
           this.calculateVictoryScore();
-          this.logEvent('success', '🏆 SCENARIO COMPLETE! Your architecture passed all production requirements.');
+          this.logEvent('success', '🏆 SCENARIO COMPLETE! Production requirements passed.');
         }
       } else {
         this.scenarioState.sustainedHealthySeconds = Math.max(0, this.scenarioState.sustainedHealthySeconds - dtSeconds * 0.5);
@@ -468,24 +694,46 @@ export class SimulationEngine {
     let complexity = 80;
     let summary = '';
 
-    if (this.scenarioState.selectedSolutionId === 'sol_add_cdn') {
-      grade = 'S';
-      reliability = 98;
-      costEff = 95;
-      complexity = 90;
-      summary = 'Optimal static architecture! Edge CDN caches 80% of requests, protecting origin server for only +$5/mo.';
-    } else if (this.scenarioState.selectedSolutionId === 'sol_load_balancer') {
-      grade = 'A';
-      reliability = 99;
-      costEff = 72;
-      complexity = 75;
-      summary = 'Robust enterprise architecture. High availability with zero single-point-of-failure, though higher monthly cost.';
+    if (this.activeScenario.id === 'scenario-2-backend-db') {
+      if (this.scenarioState.selectedSolutionId === 'sol_add_db_index') {
+        grade = 'S';
+        reliability = 99;
+        costEff = 100;
+        complexity = 95;
+        summary = 'Flawless engineering! A B-Tree index eliminated full table scans at $0 cost, instantly cutting query latency by 99.6%.';
+      } else if (this.scenarioState.selectedSolutionId === 'sol_pgbouncer') {
+        grade = 'B';
+        reliability = 92;
+        costEff = 80;
+        complexity = 78;
+        summary = 'Protected connections from dropping, but did not cure the slow query itself. Good layer, but index was needed.';
+      } else {
+        grade = 'C';
+        reliability = 78;
+        costEff = 55;
+        complexity = 80;
+        summary = 'Bruteforcing with larger hardware (+ $35/mo) temporarily accommodated the scan, but the database will saturate again as data grows.';
+      }
     } else {
-      grade = 'B';
-      reliability = 82;
-      costEff = 75;
-      complexity = 95;
-      summary = 'Simple & fast to deploy, but leaves a single point of failure and higher recurring hardware costs.';
+      if (this.scenarioState.selectedSolutionId === 'sol_add_cdn') {
+        grade = 'S';
+        reliability = 98;
+        costEff = 95;
+        complexity = 90;
+        summary = 'Optimal static architecture! Edge CDN caches 80% of requests, protecting origin server for only +$5/mo.';
+      } else if (this.scenarioState.selectedSolutionId === 'sol_load_balancer') {
+        grade = 'A';
+        reliability = 99;
+        costEff = 72;
+        complexity = 75;
+        summary = 'Robust enterprise architecture. High availability with zero single-point-of-failure, though higher monthly cost.';
+      } else {
+        grade = 'B';
+        reliability = 82;
+        costEff = 75;
+        complexity = 95;
+        summary = 'Simple & fast to deploy, but leaves a single point of failure and higher recurring hardware costs.';
+      }
     }
 
     this.scenarioState.score = {
@@ -501,29 +749,36 @@ export class SimulationEngine {
     this.pendingRequestAccumulator += this.targetRps * dtSeconds;
 
     const user = this.entities.get('user-group-1');
-    const dns = this.entities.get('dns-1');
-    if (!user || !dns) return;
+    if (!user) return;
 
     while (this.pendingRequestAccumulator >= 1.0) {
       this.pendingRequestAccumulator -= 1.0;
       this.metrics.requestsTotal++;
       this.requestCounter++;
 
-      // Construct multi-hop request path
-      let requestPath = [user.id, dns.id];
+      const isDbScenario = this.activeScenario.id === 'scenario-2-backend-db';
 
-      const hasCdn = this.entities.has('cdn-edge-1');
-      const hasLb = this.entities.has('lb-1');
+      let requestPath: string[];
+      let packetType: Packet['type'] = 'request';
 
-      if (hasCdn) {
-        requestPath.push('cdn-edge-1');
-      } else if (hasLb) {
-        requestPath.push('lb-1');
-        // Round robin between server 1 and 2
-        const targetServer = this.requestCounter % 2 === 0 ? 'server-prod-1' : 'server-prod-2';
-        requestPath.push(targetServer);
+      if (isDbScenario) {
+        requestPath = ['user-group-1', 'frontend-1', 'api-1', 'postgres-1'];
       } else {
-        requestPath.push('server-prod-1');
+        const dns = this.entities.get('dns-1');
+        requestPath = [user.id, dns ? dns.id : 'server-prod-1'];
+
+        const hasCdn = this.entities.has('cdn-edge-1');
+        const hasLb = this.entities.has('lb-1');
+
+        if (hasCdn) {
+          requestPath.push('cdn-edge-1');
+        } else if (hasLb) {
+          requestPath.push('lb-1');
+          const targetServer = this.requestCounter % 2 === 0 ? 'server-prod-1' : 'server-prod-2';
+          requestPath.push(targetServer);
+        } else {
+          requestPath.push('server-prod-1');
+        }
       }
 
       const packetId = `pkt-${this.nextPacketId++}`;
@@ -531,11 +786,11 @@ export class SimulationEngine {
         id: packetId,
         fromId: requestPath[0],
         toId: requestPath[1],
-        type: 'request',
+        type: packetType,
         path: requestPath,
         currentHopIndex: 0,
         progress: 0.0,
-        speed: 2.8,
+        speed: isDbScenario ? 3.4 : 2.8,
         status: 'in_flight',
         sizeKb: 1.2,
         createdAtTick: this.clock.getTick(),
@@ -558,20 +813,18 @@ export class SimulationEngine {
           const nextHopIdx = packet.currentHopIndex + 1;
           const currentTargetId = packet.path[nextHopIdx];
 
-          // Check CDN Edge Cache Hit
+          // Scenario 1: CDN Edge Cache Hit
           if (currentTargetId === 'cdn-edge-1') {
             const isCacheHit = Math.random() < 0.8;
             if (isCacheHit) {
-              // Cache HIT! Packet bounces back directly from CDN to User
               packet.type = 'response';
               packet.isCached = true;
               packet.fromId = 'cdn-edge-1';
               packet.toId = 'user-group-1';
               packet.progress = 0.0;
-              packet.speed = 3.2; // Blazing fast cached return
+              packet.speed = 3.2;
               continue;
             } else {
-              // Cache MISS! Advance to origin server
               packet.currentHopIndex = nextHopIdx;
               packet.fromId = 'cdn-edge-1';
               packet.toId = 'server-prod-1';
@@ -580,7 +833,23 @@ export class SimulationEngine {
             }
           }
 
-          // Check if packet reached intermediate node (e.g. DNS or LB)
+          // Scenario 2: API -> Database SQL Query
+          if (currentTargetId === 'postgres-1') {
+            packet.type = 'sql_query';
+            packet.sqlQuery = 'SELECT * FROM orders WHERE status = ?';
+            packet.currentHopIndex = nextHopIdx;
+            packet.fromId = packet.path[nextHopIdx - 1]; // api or pgbouncer
+            packet.toId = 'postgres-1';
+            packet.progress = 0.0;
+
+            const db = this.entities.get('postgres-1');
+            const isSlow = !db?.configuration.hasIndex;
+            packet.speed = isSlow ? 0.8 : 3.6; // Slow queries creep across the link
+            this.handleDbArrival(packet, db);
+            continue;
+          }
+
+          // Intermediate hops
           if (nextHopIdx < packet.path.length - 1) {
             packet.currentHopIndex = nextHopIdx;
             packet.fromId = packet.path[nextHopIdx];
@@ -589,9 +858,28 @@ export class SimulationEngine {
             continue;
           }
 
-          // Packet reached final origin host
+          // Final server reached
           packetsToRemove.push(id);
           this.handleRequestArrival(packet, currentTargetId);
+        } else if (packet.type === 'sql_query') {
+          // SQL query finished executing on database -> return sql_result to API
+          packet.type = 'sql_result';
+          packet.fromId = 'postgres-1';
+          packet.toId = 'api-1';
+          packet.progress = 0.0;
+          packet.speed = 3.0;
+
+          const db = this.entities.get('postgres-1');
+          if (db && db.resources.connections.current > 0) {
+            db.resources.connections.current--;
+          }
+        } else if (packet.type === 'sql_result') {
+          // SQL result returned to API -> API creates HTTP response to User
+          packet.type = 'response';
+          packet.fromId = 'api-1';
+          packet.toId = 'user-group-1';
+          packet.progress = 0.0;
+          packet.speed = 3.0;
         } else {
           // Response arrived back to User
           packetsToRemove.push(id);
@@ -602,6 +890,17 @@ export class SimulationEngine {
 
     for (const id of packetsToRemove) {
       this.packets.delete(id);
+    }
+  }
+
+  private handleDbArrival(packet: Packet, db?: Entity): void {
+    if (!db) return;
+    db.resources.connections.current++;
+
+    const isPoolExhausted = db.resources.connections.current > db.resources.connections.max;
+    if (isPoolExhausted) {
+      packet.status = 'dropped';
+      this.logEvent('error', 'FATAL: PostgreSQL connection slots exhausted (20/20 clients connected)');
     }
   }
 
@@ -649,7 +948,7 @@ export class SimulationEngine {
       this.metrics.requestsSuccessful++;
     } else {
       this.metrics.requestsFailed++;
-      this.logEvent('error', `HTTP 502 Bad Gateway: Origin server capacity dropped connection (${latencyMs}ms)`);
+      this.logEvent('error', `HTTP Error 500: Database/Server failure (${latencyMs}ms)`);
     }
 
     this.completedRequestsWindow.push({
@@ -660,9 +959,33 @@ export class SimulationEngine {
   }
 
   private updateResourcesAndHealth(): void {
-    const servers = Array.from(this.entities.values()).filter((e) => e.type === 'static_host');
     let worstHealth: HealthStatus = 'HEALTHY';
 
+    // 1. Update Database Nodes
+    const dbs = Array.from(this.entities.values()).filter((e) => e.type === 'database');
+    for (const db of dbs) {
+      const activeConn = db.resources.connections.current;
+      const maxConn = db.resources.connections.max;
+      const hasIndex = db.configuration.hasIndex;
+
+      // Unindexed slow queries cause high CPU and RAM
+      const targetCpu = hasIndex ? 8.0 + (activeConn / maxConn) * 20 : 25.0 + (activeConn / maxConn) * 85;
+      db.resources.cpu.utilizationPct += (Math.min(105, targetCpu) - db.resources.cpu.utilizationPct) * 0.2;
+      db.resources.cpu.usedCores = Number(((db.resources.cpu.utilizationPct / 100) * db.resources.cpu.capacityCores).toFixed(2));
+
+      if (activeConn >= maxConn || db.resources.cpu.utilizationPct > 85) {
+        db.status = 'FAILING';
+        worstHealth = 'FAILING';
+      } else if (activeConn >= maxConn * 0.8 || db.resources.cpu.utilizationPct > 70) {
+        db.status = 'OVERLOADED';
+        if (worstHealth !== 'FAILING') worstHealth = 'OVERLOADED';
+      } else {
+        db.status = 'HEALTHY';
+      }
+    }
+
+    // 2. Update Web Host & API Nodes
+    const servers = Array.from(this.entities.values()).filter((e) => e.type === 'static_host' || e.type === 'api');
     for (const server of servers) {
       const activeReqs = server.resources.connections.current;
       const maxCapacity = (server.configuration.maxRps as number) || 45;
@@ -673,9 +996,6 @@ export class SimulationEngine {
 
       server.resources.cpu.utilizationPct += (targetCpuPct - server.resources.cpu.utilizationPct) * 0.22;
       server.resources.cpu.usedCores = Number(((server.resources.cpu.utilizationPct / 100) * server.resources.cpu.capacityCores).toFixed(2));
-
-      server.resources.memory.usedMb = Math.round(280 + activeReqs * 14);
-      server.resources.memory.utilizationPct = Number(((server.resources.memory.usedMb / server.resources.memory.capacityMb) * 100).toFixed(1));
 
       const cpu = server.resources.cpu.utilizationPct;
       let newStatus: HealthStatus = 'HEALTHY';
@@ -688,10 +1008,7 @@ export class SimulationEngine {
         newStatus = 'DEGRADED';
       }
 
-      if (server.status !== newStatus) {
-        server.status = newStatus;
-      }
-
+      server.status = newStatus;
       if (newStatus === 'FAILING') worstHealth = 'FAILING';
       else if (newStatus === 'OVERLOADED' && worstHealth !== 'FAILING') worstHealth = 'OVERLOADED';
       else if (newStatus === 'DEGRADED' && worstHealth === 'HEALTHY') worstHealth = 'DEGRADED';
