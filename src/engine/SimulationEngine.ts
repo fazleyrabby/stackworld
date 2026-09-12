@@ -203,6 +203,66 @@ export class SimulationEngine {
   }
 
   /**
+   * Resets all entities in the active scenario to their canonical spacious layout.
+   */
+  public resetLayout(): void {
+    if (this.activeScenario.id === 'scenario-1-static-site') {
+      const user = this.entities.get('user-group-1');
+      const dns = this.entities.get('dns-1');
+      const s1 = this.entities.get('server-prod-1');
+      const s2 = this.entities.get('server-prod-2');
+      const cdn = this.entities.get('cdn-edge-1');
+      const lb = this.entities.get('lb-1');
+
+      if (user) user.position = { x: -380, y: 0 };
+      if (dns) dns.position = { x: -100, y: 0 };
+
+      if (cdn) {
+        cdn.position = { x: 140, y: 0 };
+        if (s1) s1.position = { x: 420, y: 0 };
+      } else if (lb) {
+        lb.position = { x: 140, y: 0 };
+        if (s1) s1.position = { x: 420, y: -110 };
+        if (s2) s2.position = { x: 420, y: 110 };
+      } else {
+        if (s1) s1.position = { x: 260, y: 0 };
+      }
+    } else if (this.activeScenario.id === 'scenario-2-backend-db') {
+      const user = this.entities.get('user-group-1');
+      const fe = this.entities.get('frontend-1');
+      const api = this.entities.get('api-1');
+      const pgb = this.entities.get('pgbouncer-1');
+      const db = this.entities.get('postgres-1');
+
+      if (user) user.position = { x: -440, y: 0 };
+      if (fe) fe.position = { x: -160, y: 0 };
+      if (api) api.position = { x: 120, y: 0 };
+      if (pgb) {
+        pgb.position = { x: 360, y: 0 };
+        if (db) db.position = { x: 620, y: 0 };
+      } else {
+        if (db) db.position = { x: 400, y: 0 };
+      }
+    } else if (this.activeScenario.id === 'scenario-3-redis-cache') {
+      const user = this.entities.get('user-group-1');
+      const fe = this.entities.get('frontend-1');
+      const api = this.entities.get('api-1');
+      const redis = this.entities.get('redis-1');
+      const db = this.entities.get('postgres-1');
+      const rep = this.entities.get('postgres-replica-1');
+
+      if (user) user.position = { x: -440, y: 0 };
+      if (fe) fe.position = { x: -160, y: 0 };
+      if (api) api.position = { x: 100, y: 0 };
+      if (redis) redis.position = { x: 380, y: -100 };
+      if (db) db.position = { x: 380, y: 100 };
+      if (rep) rep.position = { x: 640, y: 100 };
+    }
+
+    this.emitSnapshot();
+  }
+
+  /**
    * Applies an architectural solution chosen by the learner.
    */
   public applySolution(solutionId: string): void {
@@ -229,7 +289,7 @@ export class SimulationEngine {
         id: 'cdn-edge-1',
         type: 'cdn',
         name: 'Cloudflare Edge CDN',
-        position: { x: 90, y: 0 },
+        position: { x: 140, y: 0 },
         status: 'HEALTHY',
         resources: {
           cpu: { capacityCores: 8, usedCores: 0.2, utilizationPct: 2.5 },
@@ -243,6 +303,11 @@ export class SimulationEngine {
         },
         costMonthly: 5.0,
       };
+
+      const server1 = this.entities.get('server-prod-1');
+      if (server1) {
+        server1.position = { x: 420, y: 0 };
+      }
 
       this.entities.set(cdn.id, cdn);
 
@@ -271,7 +336,7 @@ export class SimulationEngine {
         id: 'lb-1',
         type: 'load_balancer',
         name: 'Nginx Load Balancer',
-        position: { x: 70, y: 0 },
+        position: { x: 140, y: 0 },
         status: 'HEALTHY',
         resources: {
           cpu: { capacityCores: 2, usedCores: 0.1, utilizationPct: 5.0 },
@@ -289,7 +354,7 @@ export class SimulationEngine {
         id: 'server-prod-2',
         type: 'static_host',
         name: 'Web Host 02',
-        position: { x: 280, y: 110 },
+        position: { x: 420, y: 110 },
         status: 'HEALTHY',
         resources: {
           cpu: { capacityCores: 2, usedCores: 0.1, utilizationPct: 5.0 },
@@ -308,7 +373,7 @@ export class SimulationEngine {
       const server1 = this.entities.get('server-prod-1');
       if (server1) {
         server1.name = 'Web Host 01';
-        server1.position = { x: 280, y: -110 };
+        server1.position = { x: 420, y: -110 };
       }
 
       this.entities.set(lb.id, lb);
@@ -358,7 +423,7 @@ export class SimulationEngine {
         id: 'pgbouncer-1',
         type: 'pgbouncer',
         name: 'PgBouncer Pooler',
-        position: { x: 210, y: 0 },
+        position: { x: 360, y: 0 },
         status: 'HEALTHY',
         resources: {
           cpu: { capacityCores: 1, usedCores: 0.1, utilizationPct: 8.0 },
@@ -376,6 +441,7 @@ export class SimulationEngine {
       const db = this.entities.get('postgres-1');
       if (db) {
         db.configuration.hasPooler = true;
+        db.position = { x: 620, y: 0 };
       }
 
       this.entities.set(pgbouncer.id, pgbouncer);
@@ -434,7 +500,7 @@ export class SimulationEngine {
         id: 'postgres-replica-1',
         type: 'database',
         name: 'PostgreSQL Read Replica',
-        position: { x: 420, y: 90 },
+        position: { x: 640, y: 100 },
         status: 'HEALTHY',
         resources: {
           cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
@@ -505,7 +571,7 @@ export class SimulationEngine {
       id: 'user-group-1',
       type: 'user',
       name: 'Internet Visitors',
-      position: { x: -320, y: 0 },
+      position: { x: -380, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 1, usedCores: 0.1, utilizationPct: 10 },
@@ -524,7 +590,7 @@ export class SimulationEngine {
       id: 'dns-1',
       type: 'dns',
       name: 'Authoritative DNS',
-      position: { x: -60, y: 0 },
+      position: { x: -100, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 4, usedCores: 0.05, utilizationPct: 2.0 },
@@ -545,7 +611,7 @@ export class SimulationEngine {
       id: 'server-prod-1',
       type: 'static_host',
       name: 'Web Host (Nginx)',
-      position: { x: 240, y: 0 },
+      position: { x: 260, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
@@ -594,7 +660,7 @@ export class SimulationEngine {
       id: 'user-group-1',
       type: 'user',
       name: 'E-Commerce Shoppers',
-      position: { x: -340, y: 0 },
+      position: { x: -440, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 1, usedCores: 0.1, utilizationPct: 10 },
@@ -612,7 +678,7 @@ export class SimulationEngine {
       id: 'frontend-1',
       type: 'static_host',
       name: 'Frontend (Nginx)',
-      position: { x: -140, y: 0 },
+      position: { x: -160, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
@@ -630,7 +696,7 @@ export class SimulationEngine {
       id: 'api-1',
       type: 'api',
       name: 'Order API (Node/Go)',
-      position: { x: 80, y: 0 },
+      position: { x: 120, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 4, usedCores: 0.2, utilizationPct: 12.0 },
@@ -649,7 +715,7 @@ export class SimulationEngine {
       id: 'postgres-1',
       type: 'database',
       name: 'PostgreSQL 16',
-      position: { x: 300, y: 0 },
+      position: { x: 400, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
@@ -707,7 +773,7 @@ export class SimulationEngine {
       id: 'user-group-1',
       type: 'user',
       name: 'Flash Sale Shoppers',
-      position: { x: -340, y: 0 },
+      position: { x: -440, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 1, usedCores: 0.1, utilizationPct: 10 },
@@ -725,7 +791,7 @@ export class SimulationEngine {
       id: 'frontend-1',
       type: 'static_host',
       name: 'Storefront (Nginx)',
-      position: { x: -140, y: 0 },
+      position: { x: -160, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
@@ -743,7 +809,7 @@ export class SimulationEngine {
       id: 'api-1',
       type: 'api',
       name: 'Catalog API (Node.js)',
-      position: { x: 60, y: 0 },
+      position: { x: 100, y: 0 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 4, usedCores: 0.2, utilizationPct: 12.0 },
@@ -762,7 +828,7 @@ export class SimulationEngine {
       id: 'redis-1',
       type: 'redis',
       name: 'Redis 7.2 Cache',
-      position: { x: 260, y: -90 },
+      position: { x: 380, y: -100 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 2, usedCores: 0.05, utilizationPct: 3.5 },
@@ -784,7 +850,7 @@ export class SimulationEngine {
       id: 'postgres-1',
       type: 'database',
       name: 'PostgreSQL 16 (Primary)',
-      position: { x: 260, y: 90 },
+      position: { x: 380, y: 100 },
       status: 'HEALTHY',
       resources: {
         cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },

@@ -200,6 +200,25 @@ export class CanvasRenderer {
     return { startX, startY, cp1x, cp1y, cp2x, cp2y, endX, endY };
   }
 
+  private drawPortSocket(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+    ctx.save();
+    // Chassis ring
+    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(x, y, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Optical core
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(x, y, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   private drawConnection(
     ctx: CanvasRenderingContext2D,
     conn: Connection,
@@ -237,14 +256,28 @@ export class CanvasRenderer {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Connection badge in center
+    // Cable terminal plug sockets
+    this.drawPortSocket(ctx, geo.startX, geo.startY);
+    this.drawPortSocket(ctx, geo.endX, geo.endY);
+
+    // Connection badge aligned with cable angle
     const midX = (geo.startX + geo.endX) / 2;
     const midY = (geo.startY + geo.endY) / 2;
 
+    const vx = 0.75 * (geo.cp1x - geo.startX) + 1.5 * (geo.cp2x - geo.cp1x) + 0.75 * (geo.endX - geo.cp2x);
+    const vy = 0.75 * (geo.cp1y - geo.startY) + 1.5 * (geo.cp2y - geo.cp1y) + 0.75 * (geo.endY - geo.cp2y);
+    let angle = Math.atan2(vy, vx);
+    if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
+      angle += Math.PI;
+    }
+
+    ctx.translate(midX, midY);
+    ctx.rotate(angle);
+
     ctx.fillStyle = '#0f172a';
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.3)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
     ctx.lineWidth = 1;
-    this.roundRect(ctx, midX - 54, midY - 12, 108, 24, 6);
+    this.roundRect(ctx, -52, -11, 104, 22, 5);
     ctx.fill();
     ctx.stroke();
 
@@ -252,7 +285,7 @@ export class CanvasRenderer {
     ctx.font = '10px "Fira Code", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${conn.latencyMs}ms • ${conn.currentTrafficMbps}M`, midX, midY);
+    ctx.fillText(`${conn.latencyMs}ms • ${conn.currentTrafficMbps}M`, 0, 0);
 
     ctx.restore();
   }
@@ -271,12 +304,17 @@ export class CanvasRenderer {
     const px = inv * inv * inv * geo.startX + 3 * inv * inv * t * geo.cp1x + 3 * inv * t * t * geo.cp2x + t * t * t * geo.endX;
     const py = inv * inv * inv * geo.startY + 3 * inv * inv * t * geo.cp1y + 3 * inv * t * t * geo.cp2y + t * t * t * geo.endY;
 
+    // Tangent velocity vector at current progress
+    const vx = 3 * inv * inv * (geo.cp1x - geo.startX) + 6 * inv * t * (geo.cp2x - geo.cp1x) + 3 * t * t * (geo.endX - geo.cp2x);
+    const vy = 3 * inv * inv * (geo.cp1y - geo.startY) + 6 * inv * t * (geo.cp2y - geo.cp1y) + 3 * t * t * (geo.endY - geo.cp2y);
+    const angle = Math.atan2(vy, vx);
+
     ctx.save();
 
     const isRequest = packet.type === 'request';
     let color = '#38bdf8'; // Request Cyan
     if (packet.type === 'cache_hit') {
-      color = '#f43f5e'; // Ruby / Crimson In-Memory Redis Cache Hit
+      color = '#ff2a6d'; // Ruby / Crimson In-Memory Redis Cache Hit
     } else if (packet.isCached) {
       color = '#c084fc'; // Purple / Violet Edge Cache Hit
     } else if (packet.type === 'sql_query') {
@@ -287,23 +325,43 @@ export class CanvasRenderer {
       color = packet.status === 'dropped' ? '#f43f5e' : '#10b981'; // Green success or Red dropped
     }
 
-    // Outer Glow
+    ctx.translate(px, py);
+    ctx.rotate(angle);
+
     const isSql = packet.type === 'sql_query' || packet.type === 'sql_result';
-    const isCache = packet.isCached || packet.type === 'cache_hit';
-    const radius = isCache ? 13 : isSql ? 12 : 10;
-    const gradient = ctx.createRadialGradient(px, py, 0, px, py, radius);
+
+    // 1. Trailing Comet Stream (oriented backwards along movement angle)
+    const tailLength = packet.isCached ? 20 : isSql ? 17 : 15;
+    const tailGrad = ctx.createLinearGradient(-tailLength, 0, 0, 0);
+    tailGrad.addColorStop(0, 'transparent');
+    tailGrad.addColorStop(1, color);
+    ctx.strokeStyle = tailGrad;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-tailLength, 0);
+    ctx.lineTo(0, 0);
+    ctx.stroke();
+
+    // 2. Outer Glow
+    const radius = packet.isCached ? 13 : isSql ? 12 : 10;
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
     gradient.addColorStop(0, color);
-    gradient.addColorStop(0.6, `${color}44`);
+    gradient.addColorStop(0.5, `${color}44`);
     gradient.addColorStop(1, 'transparent');
     ctx.fillStyle = gradient;
     ctx.beginPath();
-    ctx.arc(px, py, radius, 0, Math.PI * 2);
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Inner Core
+    // 3. Directional Forward Chevron Head
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(px, py, packet.isCached || isSql ? 4.2 : 3.5, 0, Math.PI * 2);
+    ctx.moveTo(5.5, 0);        // Arrow tip
+    ctx.lineTo(-3.5, -4.5);    // Left wing
+    ctx.lineTo(-1.5, 0);       // Notch
+    ctx.lineTo(-3.5, 4.5);     // Right wing
+    ctx.closePath();
     ctx.fill();
 
     ctx.restore();
@@ -348,9 +406,15 @@ export class CanvasRenderer {
     ctx.strokeStyle = isSelected ? '#38bdf8' : (isHovered ? 'rgba(255,255,255,0.3)' : 'rgba(255, 255, 255, 0.1)');
     ctx.stroke();
 
-    // 5. Status Indicator Pill & Line
+    // Top status accent line
     ctx.fillStyle = statusColor;
-    ctx.fillRect(x + 12, y + 14, 8, 8);
+    ctx.fillRect(x + 14, y, w - 28, 2);
+
+    // 5. Status Indicator Dot
+    ctx.beginPath();
+    ctx.arc(x + 16, y + 17, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = statusColor;
+    ctx.fill();
 
     // 6. Header Text
     ctx.textAlign = 'left';

@@ -5,7 +5,7 @@ import { InteractionManager } from './InteractionManager';
 import { SimulationEngine } from '../engine/SimulationEngine';
 import { SimulationSnapshot } from '../shared/types';
 import { useUiStore } from '../state/useUiStore';
-import { ZoomIn, ZoomOut, RotateCcw, Move } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Move, LayoutGrid } from 'lucide-react';
 
 interface WorldViewportProps {
   engine: SimulationEngine;
@@ -90,6 +90,11 @@ export const WorldViewport: React.FC<WorldViewportProps> = ({ engine }) => {
     cameraRef.current.reset();
   };
 
+  const handleResetLayout = () => {
+    engine.resetLayout();
+    cameraRef.current.reset();
+  };
+
   return (
     <div className="canvas-container">
       <canvas ref={canvasRef} className="sim-canvas" />
@@ -106,6 +111,9 @@ export const WorldViewport: React.FC<WorldViewportProps> = ({ engine }) => {
         <div className="canvas-controls-divider" />
         <button onClick={handleResetCamera} title="Reset View" className="canvas-btn">
           <RotateCcw size={14} />
+        </button>
+        <button onClick={handleResetLayout} title="Auto Layout (Reset Node Positions)" className="canvas-btn">
+          <LayoutGrid size={14} />
         </button>
       </div>
 

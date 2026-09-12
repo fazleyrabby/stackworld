@@ -59,4 +59,18 @@ describe('SimulationEngine', () => {
     expect(server?.position.x).toBe(400);
     expect(server?.position.y).toBe(150);
   });
+
+  it('resets entity positions back to canonical layout when resetLayout is called', () => {
+    const engine = new SimulationEngine();
+
+    // Move server to custom coordinates
+    engine.updateEntityPosition('server-prod-1', { x: 999, y: 888 });
+    expect(engine.getSnapshot().entities.find((e) => e.id === 'server-prod-1')?.position.x).toBe(999);
+
+    // Call resetLayout
+    engine.resetLayout();
+    const serverAfter = engine.getSnapshot().entities.find((e) => e.id === 'server-prod-1');
+    expect(serverAfter?.position.x).toBe(260);
+    expect(serverAfter?.position.y).toBe(0);
+  });
 });
