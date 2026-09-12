@@ -1,0 +1,117 @@
+import { ScenarioDefinition } from './types';
+
+export const staticSiteScenario: ScenarioDefinition = {
+  id: 'scenario-1-static-site',
+  title: 'Keep The Website Online',
+  difficulty: 'Beginner',
+  estimatedMinutes: 5,
+  prerequisites: ['Basic HTTP', 'DNS Concepts', 'Static Hosting'],
+  learningObjectives: [
+    'Understand how DNS maps domain names to server IP addresses',
+    'Observe what happens when traffic exceeds server CPU & connection pool capacity',
+    'Evaluate trade-offs between Vertical Scaling, CDN Caching, and Horizontal Scaling',
+  ],
+  startingBudgetMonthly: 35.0,
+  stages: [
+    {
+      id: 'stage_baseline',
+      title: '1. Normal Traffic Baseline',
+      targetRps: 6,
+      instructions: 'Observe traffic flowing from Users through DNS to your Nginx static web host.',
+    },
+    {
+      id: 'stage_surge',
+      title: '2. Traffic Surge Inbound',
+      targetRps: 38,
+      instructions: 'A product launch on social media is driving a 6x surge in visitor traffic!',
+    },
+    {
+      id: 'stage_degraded',
+      title: '3. Server Saturated — Action Required',
+      targetRps: 42,
+      instructions: 'Server CPU has saturated above 85% and connections are dropping. Deploy an architectural fix!',
+    },
+    {
+      id: 'stage_solution_applied',
+      title: '4. Verifying Stability Under Load',
+      targetRps: 42,
+      instructions: 'Sustain the high traffic volume for 12 seconds with low error rates to pass the scenario.',
+    },
+    {
+      id: 'stage_victory',
+      title: '5. Production Ready!',
+      targetRps: 42,
+      instructions: 'Congratulations! Your new architecture successfully sustained the traffic surge.',
+    },
+  ],
+  availableSolutions: [
+    {
+      id: 'sol_vertical_scale',
+      name: 'Scale Vertically (Upgrade VM)',
+      tagline: 'Double CPU Cores and RAM capacity on the existing server',
+      category: 'vertical',
+      costMonthlyDelta: 15.0,
+      complexity: 'Low',
+      reliability: 'Moderate',
+      description: 'Upgrade the virtual machine from 2 vCPUs / 2GB RAM to 4 vCPUs / 4GB RAM. This increases maximum concurrent RPS from 45 to 95.',
+      pros: [
+        'Zero architectural redesign required',
+        'Quickest solution to deploy',
+        'No cache invalidation complexity',
+      ],
+      cons: [
+        'Still a single point of failure (no redundancy)',
+        'Costs scale quadratically on large cloud instances',
+        'Hard hardware ceiling for future growth',
+      ],
+      appliedExplanation: 'Server upgraded to 4 vCPUs / 4GB RAM. CPU load dropped immediately under load.',
+    },
+    {
+      id: 'sol_add_cdn',
+      name: 'Add Edge CDN (Content Delivery Network)',
+      tagline: 'Cache static assets geographically closer to users',
+      category: 'cdn',
+      costMonthlyDelta: 5.0,
+      complexity: 'Low',
+      reliability: 'High',
+      description: 'Deploy an Edge CDN (e.g. Cloudflare / CloudFront) in front of the server. The CDN caches HTML/CSS/JS and serves 80% of requests directly from cache with sub-10ms latency.',
+      pros: [
+        'Absorbs ~80% of total request volume before reaching your origin',
+        'Extremely cost-effective ($5/mo for CDN vs $15/mo for larger VM)',
+        'Cuts average user latency from 22ms to ~8ms',
+      ],
+      cons: [
+        'Requires Cache-Control header management',
+        'Cache invalidation delay on deployments',
+        'Origin server must still be secured',
+      ],
+      appliedExplanation: 'Edge CDN deployed! 80% of static requests are now served directly from edge cache.',
+    },
+    {
+      id: 'sol_load_balancer',
+      name: 'Add Load Balancer + 2nd Server',
+      tagline: 'Horizontally scale across multiple redundant application instances',
+      category: 'horizontal',
+      costMonthlyDelta: 20.0,
+      complexity: 'Medium',
+      reliability: 'Very High',
+      description: 'Place an Nginx reverse-proxy load balancer in front of two identical static hosts. Incoming requests are distributed evenly (Round Robin).',
+      pros: [
+        'High Availability: If one server crashes, the other continues serving',
+        'Horizontally scalable to N servers in the future',
+        'Clean separation of routing vs application hosting',
+      ],
+      cons: [
+        'Highest monthly cost ($10 LB + $15 2nd Host = +$20)',
+        'Introduces load balancer as a new component to maintain',
+        'Requires health check configuration',
+      ],
+      appliedExplanation: 'Load Balancer and second host added. Traffic is distributed 50/50 with full redundancy.',
+    },
+  ],
+  successConditions: {
+    minSustainedSeconds: 12,
+    maxErrorRate: 0.02,
+    requiredHealth: 'HEALTHY',
+  },
+};

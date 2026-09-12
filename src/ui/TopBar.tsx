@@ -57,7 +57,7 @@ export const TopBar: React.FC<TopBarProps> = ({ snapshot }) => {
         <div className="telemetry-pill">
           <span className={`pulse-dot ${snapshot.isPaused ? 'paused' : ''}`} />
           <span className="telemetry-label">SIM TIME</span>
-          <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>
+          <span className="tabular-num-slot time-slot">
             {formatSimTime(snapshot.timeSeconds)}
           </span>
         </div>
@@ -72,12 +72,12 @@ export const TopBar: React.FC<TopBarProps> = ({ snapshot }) => {
         <div className="telemetry-pill">
           <Globe size={13} color="var(--text-muted)" />
           <span className="telemetry-label">RPS:</span>
-          <span style={{ color: 'var(--emerald)', fontWeight: 700 }}>
-            {snapshot.metrics.currentRps}
+          <span className="tabular-num-slot rps-slot">
+            {snapshot.metrics.currentRps.toFixed(1)}
           </span>
-          <span style={{ color: 'var(--border-subtle)', margin: '0 2px' }}>|</span>
+          <span className="telemetry-divider">|</span>
           <span className="telemetry-label">TOTAL:</span>
-          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+          <span className="tabular-num-slot total-slot">
             {snapshot.metrics.requestsTotal}
           </span>
         </div>
@@ -88,7 +88,7 @@ export const TopBar: React.FC<TopBarProps> = ({ snapshot }) => {
         <div className="telemetry-pill">
           <DollarSign size={13} color="var(--emerald)" />
           <span className="telemetry-label">Budget:</span>
-          <span style={{ color: 'var(--emerald)', fontWeight: 700 }}>
+          <span className="tabular-num-slot budget-slot">
             ${snapshot.metrics.monthlyCost.toFixed(2)}
           </span>
           <span style={{ color: 'var(--text-muted)' }}>/ $20.00</span>

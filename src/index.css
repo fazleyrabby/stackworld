@@ -253,6 +253,43 @@ html, body, #root {
   color: var(--text-muted);
 }
 
+.telemetry-divider {
+  color: var(--border-subtle);
+  margin: 0 2px;
+}
+
+/* Stable Tabular Number Slots (Zero Jitter) */
+.tabular-num-slot {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  display: inline-block;
+  font-weight: 700;
+}
+
+.time-slot {
+  color: var(--cyan);
+  min-width: 44px;
+  text-align: center;
+}
+
+.rps-slot {
+  color: var(--emerald);
+  min-width: 36px;
+  text-align: right;
+}
+
+.total-slot {
+  color: var(--text-primary);
+  min-width: 48px;
+  text-align: right;
+}
+
+.budget-slot {
+  color: var(--emerald);
+  min-width: 62px;
+  text-align: right;
+}
+
 .pulse-dot {
   width: 8px;
   height: 8px;
@@ -276,6 +313,7 @@ html, body, #root {
 .health-pill {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 4px 12px;
   border-radius: 6px;
@@ -284,6 +322,8 @@ html, body, #root {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   border: 1px solid transparent;
+  min-width: 118px; /* Fixed width so state transitions never cause layout shifts */
+  text-align: center;
 }
 
 .health-healthy {
