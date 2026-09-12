@@ -234,6 +234,8 @@ export class CanvasRenderer {
     const px = inv * inv * inv * startX + 3 * inv * inv * t * cp1x + 3 * inv * t * t * cp2x + t * t * t * endX;
     const py = inv * inv * inv * startY + 3 * inv * inv * t * cp1y + 3 * inv * t * t * cp2y + t * t * t * endY;
 
+    ctx.save();
+
     let color = '#38bdf8'; // Request Cyan
     if (packet.isCached) {
       color = '#c084fc'; // Purple / Violet Edge Cache Hit
