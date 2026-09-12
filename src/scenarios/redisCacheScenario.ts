@@ -1,0 +1,116 @@
+import { ScenarioDefinition } from './types';
+
+export const redisCacheScenario: ScenarioDefinition = {
+  id: 'scenario-3-redis-cache',
+  title: 'The Cache Stampede Crisis',
+  difficulty: 'Advanced',
+  estimatedMinutes: 7,
+  prerequisites: ['In-Memory Caching', 'Key-Value Stores', 'Relational Databases'],
+  learningObjectives: [
+    'Understand how in-memory caches (Redis) protect transactional databases from read spikes',
+    'Observe cache hit ratios and 1ms latency returns vs disk-bound database queries',
+    'Diagnose a Cache Stampede (Thundering Herd) when a hot key expires under high concurrency',
+    'Evaluate Mutex / Singleflight deduplication vs throwing hardware read replicas at the problem',
+  ],
+  startingBudgetMonthly: 60.0,
+  stages: [
+    {
+      id: 'stage_baseline',
+      title: '1. Flash Sale Catalog Baseline',
+      targetRps: 8,
+      instructions: 'Shoppers browse the product catalog. The Backend API queries PostgreSQL for product data.',
+    },
+    {
+      id: 'stage_surge',
+      title: '2. Flash Sale Traffic Spike Triggered',
+      targetRps: 34,
+      instructions: 'The flash sale goes live! Thousands of visitors load the exact same featured products simultaneously.',
+    },
+    {
+      id: 'stage_degraded',
+      title: '3. Database Saturation / Cache Stampede',
+      targetRps: 38,
+      instructions: 'Identical product queries slam PostgreSQL. CPU reaches 95% and connection sockets are choking.',
+    },
+    {
+      id: 'stage_solution_applied',
+      title: '4. Verifying Cache & Stampede Mitigation',
+      targetRps: 38,
+      instructions: 'Sustain traffic for 12 seconds with average latency under 12ms and database CPU under 40%.',
+    },
+    {
+      id: 'stage_victory',
+      title: '5. High-Throughput Caching Achieved',
+      targetRps: 38,
+      instructions: 'Flash sale survived! In-memory caching and stampede protection delivered sub-millisecond throughput.',
+    },
+  ],
+  availableSolutions: [
+    {
+      id: 'sol_mutex_stampede_lock',
+      name: 'Singleflight Mutex Lock (Stampede Guard)',
+      tagline: 'Lock-based deduplication: Only 1 request queries DB on cache miss',
+      category: 'cache',
+      costMonthlyDelta: 0.0,
+      complexity: 'Low',
+      reliability: 'Very High',
+      description: 'Implement a Singleflight / Mutex lock on the API. When the Redis key expires under high concurrency, exactly 1 worker queries PostgreSQL while all other concurrent requests wait for that single result to populate Redis. Completely eliminates the Thundering Herd!',
+      pros: [
+        'Zero additional infrastructure cost ($0/month)',
+        'Guarantees the database never experiences a stampede outage',
+        'Cuts database read spikes by 98% during key invalidation',
+      ],
+      cons: [
+        'Trailing requests stall for a few milliseconds while leader query executes',
+        'Requires in-process synchronization in the application code',
+      ],
+      appliedExplanation: 'Singleflight Mutex active! Concurrency collapsed to 1 DB query per key on cache miss. Database CPU dropped to 8%.',
+    },
+    {
+      id: 'sol_deploy_redis',
+      name: 'Deploy Redis 7.2 In-Memory Cluster',
+      tagline: 'High-throughput in-memory key-value store with LRU eviction',
+      category: 'cache',
+      costMonthlyDelta: 15.0,
+      complexity: 'Medium',
+      reliability: 'High',
+      description: 'Deploy a dedicated Redis 7.2 in-memory cache instance. Cached catalog items return in 1ms with a 90% cache hit ratio, shielding PostgreSQL from 9 out of 10 incoming read requests.',
+      pros: [
+        'Sub-millisecond read latency (1ms cache returns)',
+        'Absorbs 90% of all incoming read queries',
+        'Automatic memory eviction with volatile-lru policy',
+      ],
+      cons: [
+        'Adds +$15/month infrastructure expense',
+        'Without lock guards, key expiration can still trigger a brief stampede',
+      ],
+      appliedExplanation: 'Redis 7.2 active! 90% of requests served from RAM in 1ms. Database load reduced by 90%.',
+    },
+    {
+      id: 'sol_db_read_replica',
+      name: 'Provision PostgreSQL Read Replica',
+      tagline: 'Horizontal database scaling with streaming replication',
+      category: 'horizontal',
+      costMonthlyDelta: 30.0,
+      complexity: 'Medium',
+      reliability: 'High',
+      description: 'Provision an asynchronous PostgreSQL read replica and split database queries. Relieves the primary writer database by distributing select queries across two instances.',
+      pros: [
+        'Doubles overall database read capacity',
+        'Isolates transactional writes from analytical and catalog reads',
+        'Provides hot-standby redundancy',
+      ],
+      cons: [
+        'Highest cost impact (+ $30/month recurring)',
+        'Anti-pattern for repeated reads: disk queries are still 15x slower than RAM caching',
+        'Potential replication lag between primary and replica',
+      ],
+      appliedExplanation: 'PostgreSQL Read Replica provisioned. Read traffic split, but disk I/O remains higher than in-memory caching.',
+    },
+  ],
+  successConditions: {
+    minSustainedSeconds: 12,
+    maxErrorRate: 0.015,
+    requiredHealth: 'HEALTHY',
+  },
+};

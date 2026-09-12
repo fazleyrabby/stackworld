@@ -5,8 +5,8 @@ import { useUiStore } from '../state/useUiStore';
 
 interface TopBarProps {
   snapshot: SimulationSnapshot;
-  activeScenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db';
-  onSelectScenario: (scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db') => void;
+  activeScenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache';
+  onSelectScenario: (scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache') => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ snapshot, activeScenarioId, onSelectScenario }) => {
@@ -53,12 +53,13 @@ export const TopBar: React.FC<TopBarProps> = ({ snapshot, activeScenarioId, onSe
           <span className="label">Scenario:</span>
           <select
             value={activeScenarioId}
-            onChange={(e) => onSelectScenario(e.target.value as 'scenario-1-static-site' | 'scenario-2-backend-db')}
+            onChange={(e) => onSelectScenario(e.target.value as 'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache')}
             className="scenario-select"
             aria-label="Select simulation scenario"
           >
             <option value="scenario-1-static-site">Phase 1: Keep Website Online</option>
             <option value="scenario-2-backend-db">Phase 2: The Slow Database Incident</option>
+            <option value="scenario-3-redis-cache">Phase 3: The Cache Stampede Crisis</option>
           </select>
         </div>
       </div>
@@ -104,7 +105,7 @@ export const TopBar: React.FC<TopBarProps> = ({ snapshot, activeScenarioId, onSe
             ${snapshot.metrics.monthlyCost.toFixed(2)}
           </span>
           <span style={{ color: 'var(--text-muted)' }}>
-            / ${activeScenarioId === 'scenario-2-backend-db' ? '45.00' : '20.00'}
+            / ${activeScenarioId === 'scenario-3-redis-cache' ? '60.00' : activeScenarioId === 'scenario-2-backend-db' ? '45.00' : '20.00'}
           </span>
         </div>
 

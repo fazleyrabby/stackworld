@@ -1,7 +1,7 @@
 import React from 'react';
 import { SimulationSnapshot } from '../shared/types';
 import { useUiStore } from '../state/useUiStore';
-import { X, Server, Users, Cpu, HardDrive, Wifi, Activity, Terminal, Database, Layers } from 'lucide-react';
+import { X, Server, Users, Cpu, HardDrive, Wifi, Activity, Terminal, Database, Layers, Zap } from 'lucide-react';
 
 interface InspectorProps {
   snapshot: SimulationSnapshot;
@@ -18,7 +18,8 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
   const entity = snapshot.entities.find((e) => e.id === selectedEntityId);
   if (!entity) return null;
 
-  const isServer = entity.type === 'static_host' || entity.type === 'server' || entity.type === 'api' || entity.type === 'database';
+  const isRedis = entity.type === 'redis';
+  const isServer = entity.type === 'static_host' || entity.type === 'server' || entity.type === 'api' || entity.type === 'database' || isRedis;
   const isDb = entity.type === 'database';
   const isPooler = entity.type === 'pgbouncer';
 
@@ -33,6 +34,7 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
   };
 
   const getNodeIcon = () => {
+    if (entity.type === 'redis') return <Zap size={16} color="#ef4444" />;
     if (entity.type === 'database') return <Database size={16} />;
     if (entity.type === 'pgbouncer') return <Layers size={16} />;
     if (isServer) return <Server size={16} />;
@@ -206,6 +208,63 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-muted)' }}>Active Query:</span>
                         <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--amber)', fontSize: '10px' }}>SELECT * FROM orders...</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Redis In-Memory Cache Profile */}
+                {isRedis && (
+                  <div
+                    className="metric-card"
+                    style={{
+                      border: '1px solid rgba(239, 68, 68, 0.4)',
+                    }}
+                  >
+                    <div className="metric-card-top">
+                      <div className="metric-card-title">
+                        <Zap size={14} color="#ef4444" />
+                        <span>In-Memory Cache Profile</span>
+                      </div>
+                      <span
+                        className="health-pill health-healthy"
+                        style={{ padding: '2px 6px', fontSize: '10px', minWidth: 'unset', color: '#ef4444' }}
+                      >
+                        RAM STORAGE
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px',
+                        fontSize: '11px',
+                        marginTop: '6px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Hit Ratio:</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#10b981' }}>
+                          {Math.round(((entity.configuration.cacheHitRatio as number) || 0.9) * 100)}%
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Cached Keys:</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
+                          {String(entity.configuration.cachedKeysCount || '1,420')} items
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Eviction Policy:</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--cyan)' }}>
+                          {String(entity.configuration.evictionPolicy || 'volatile-lru')}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Read Latency:</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: '#10b981', fontWeight: 600 }}>
+                          1ms (RAM)
+                        </span>
                       </div>
                     </div>
                   </div>

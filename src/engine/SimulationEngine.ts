@@ -24,6 +24,7 @@ import {
 import { SimulationClock } from './Clock';
 import { staticSiteScenario } from '../scenarios/staticSiteScenario';
 import { backendDbScenario } from '../scenarios/backendDbScenario';
+import { redisCacheScenario } from '../scenarios/redisCacheScenario';
 import { ScenarioDefinition, ScenarioState } from '../scenarios/types';
 
 export interface SimulationEngineConfig {
@@ -162,9 +163,9 @@ export class SimulationEngine {
   }
 
   /**
-   * Load either Scenario 1 (Static Site) or Scenario 2 (Backend + Database)
+   * Load Scenario 1 (Static Site), Scenario 2 (Backend + Database), or Scenario 3 (Redis Cache)
    */
-  public loadScenario(scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db'): void {
+  public loadScenario(scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache'): void {
     this.clock.reset();
     this.entities.clear();
     this.connections.clear();
@@ -173,7 +174,12 @@ export class SimulationEngine {
     this.completedRequestsWindow = [];
     this.pendingRequestAccumulator = 0;
 
-    if (scenarioId === 'scenario-2-backend-db') {
+    if (scenarioId === 'scenario-3-redis-cache') {
+      this.activeScenario = redisCacheScenario;
+      this.targetRps = 8;
+      this.metrics.monthlyCost = 45.0;
+      this.initializeScenario3();
+    } else if (scenarioId === 'scenario-2-backend-db') {
       this.activeScenario = backendDbScenario;
       this.targetRps = 10;
       this.metrics.monthlyCost = 35.0;
@@ -405,6 +411,57 @@ export class SimulationEngine {
       }
       this.metrics.monthlyCost += 35.0;
       this.logEvent('success', 'Database tier upgraded to 4 vCPUs / 8GB RAM.');
+    }
+
+    // Handle Scenario 3 Solutions
+    if (solutionId === 'sol_mutex_stampede_lock') {
+      const api = this.entities.get('api-1');
+      if (api) {
+        api.configuration.hasMutexLock = true;
+      }
+      this.logEvent('success', 'Singleflight Mutex Lock active! Thundering herd collapsed to 1 DB query on cache miss.');
+    } else if (solutionId === 'sol_deploy_redis') {
+      const redis = this.entities.get('redis-1');
+      if (redis) {
+        redis.name = 'Redis 7.2 In-Memory Cluster';
+        redis.resources.memory.capacityMb = 1024;
+        redis.configuration.cacheHitRatio = 0.95;
+      }
+      this.metrics.monthlyCost += 15.0;
+      this.logEvent('success', 'Redis cluster expanded. Cache hit ratio elevated to 95%.');
+    } else if (solutionId === 'sol_db_read_replica') {
+      const replica: Entity = {
+        id: 'postgres-replica-1',
+        type: 'database',
+        name: 'PostgreSQL Read Replica',
+        position: { x: 420, y: 90 },
+        status: 'HEALTHY',
+        resources: {
+          cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
+          memory: { capacityMb: 2048, usedMb: 450, utilizationPct: 22.0 },
+          connections: { current: 0, max: 20 },
+        },
+        configuration: {
+          port: 5433,
+          engine: 'PostgreSQL 16.2 (Replica)',
+          maxConnections: 20,
+          role: 'Read Replica',
+        },
+        costMonthly: 30.0,
+      };
+
+      this.entities.set(replica.id, replica);
+      this.connections.set('conn-api-to-replica', {
+        id: 'conn-api-to-replica',
+        fromId: 'api-1',
+        toId: replica.id,
+        bandwidthMbps: 1000,
+        latencyMs: 4,
+        currentTrafficMbps: 0.4,
+      });
+
+      this.metrics.monthlyCost += 30.0;
+      this.logEvent('success', 'PostgreSQL Read Replica active. Read queries split across instances.');
     }
 
     this.emitSnapshot();
@@ -645,6 +702,150 @@ export class SimulationEngine {
     this.logEvent('info', 'Loaded Scenario 2: User → Frontend → Order API → PostgreSQL 16');
   }
 
+  private initializeScenario3(): void {
+    const userGroup: Entity = {
+      id: 'user-group-1',
+      type: 'user',
+      name: 'Flash Sale Shoppers',
+      position: { x: -340, y: 0 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 1, usedCores: 0.1, utilizationPct: 10 },
+        memory: { capacityMb: 512, usedMb: 48, utilizationPct: 9.3 },
+        connections: { current: 0, max: 10000 },
+      },
+      configuration: {
+        activeClients: 450,
+        protocol: 'HTTPS/2',
+      },
+      costMonthly: 0,
+    };
+
+    const frontend: Entity = {
+      id: 'frontend-1',
+      type: 'static_host',
+      name: 'Storefront (Nginx)',
+      position: { x: -140, y: 0 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
+        memory: { capacityMb: 2048, usedMb: 240, utilizationPct: 11.7 },
+        connections: { current: 0, max: 300 },
+      },
+      configuration: {
+        port: 443,
+        routes: '/* -> Catalog SPA, /api/* -> Backend API',
+      },
+      costMonthly: 10.0,
+    };
+
+    const backendApi: Entity = {
+      id: 'api-1',
+      type: 'api',
+      name: 'Catalog API (Node.js)',
+      position: { x: 60, y: 0 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 4, usedCores: 0.2, utilizationPct: 12.0 },
+        memory: { capacityMb: 2048, usedMb: 420, utilizationPct: 20.5 },
+        connections: { current: 0, max: 200 },
+      },
+      configuration: {
+        runtime: 'Node.js 20 / Express',
+        port: 8080,
+        endpoint: 'GET /api/products/featured',
+      },
+      costMonthly: 15.0,
+    };
+
+    const redis: Entity = {
+      id: 'redis-1',
+      type: 'redis',
+      name: 'Redis 7.2 Cache',
+      position: { x: 260, y: -90 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 2, usedCores: 0.05, utilizationPct: 3.5 },
+        memory: { capacityMb: 256, usedMb: 42, utilizationPct: 16.4 },
+        connections: { current: 0, max: 2000 },
+      },
+      configuration: {
+        port: 6379,
+        version: 'Redis 7.2-alpine',
+        evictionPolicy: 'volatile-lru',
+        ttlSeconds: 60,
+        cacheHitRatio: 0.90,
+        cachedKeysCount: 1420,
+      },
+      costMonthly: 10.0,
+    };
+
+    const postgres: Entity = {
+      id: 'postgres-1',
+      type: 'database',
+      name: 'PostgreSQL 16 (Primary)',
+      position: { x: 260, y: 90 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
+        memory: { capacityMb: 2048, usedMb: 580, utilizationPct: 28.3 },
+        connections: { current: 0, max: 20 },
+      },
+      configuration: {
+        port: 5432,
+        engine: 'PostgreSQL 16.2',
+        maxConnections: 20,
+        tableRows: '150,000 catalog items',
+        hasIndex: true,
+      },
+      costMonthly: 20.0,
+    };
+
+    this.entities.set(userGroup.id, userGroup);
+    this.entities.set(frontend.id, frontend);
+    this.entities.set(backendApi.id, backendApi);
+    this.entities.set(redis.id, redis);
+    this.entities.set(postgres.id, postgres);
+
+    this.connections.set('conn-user-to-fe', {
+      id: 'conn-user-to-fe',
+      fromId: userGroup.id,
+      toId: frontend.id,
+      bandwidthMbps: 1000,
+      latencyMs: 10,
+      currentTrafficMbps: 1.2,
+    });
+
+    this.connections.set('conn-fe-to-api', {
+      id: 'conn-fe-to-api',
+      fromId: frontend.id,
+      toId: backendApi.id,
+      bandwidthMbps: 1000,
+      latencyMs: 4,
+      currentTrafficMbps: 2.0,
+    });
+
+    this.connections.set('conn-api-to-redis', {
+      id: 'conn-api-to-redis',
+      fromId: backendApi.id,
+      toId: redis.id,
+      bandwidthMbps: 1000,
+      latencyMs: 1,
+      currentTrafficMbps: 1.8,
+    });
+
+    this.connections.set('conn-api-to-db', {
+      id: 'conn-api-to-db',
+      fromId: backendApi.id,
+      toId: postgres.id,
+      bandwidthMbps: 1000,
+      latencyMs: 4,
+      currentTrafficMbps: 0.4,
+    });
+
+    this.logEvent('info', 'Loaded Scenario 3: Flash Sale Storefront → API → Redis 7.2 & PostgreSQL');
+  }
+
   private processScenarioProgress(dtSeconds: number): void {
     const simTime = this.clock.getSimTimeSeconds();
 
@@ -655,7 +856,18 @@ export class SimulationEngine {
     }
 
     if (this.scenarioState.currentStageId === 'stage_surge') {
-      if (this.activeScenario.id === 'scenario-2-backend-db') {
+      if (this.activeScenario.id === 'scenario-3-redis-cache') {
+        const redis = this.entities.get('redis-1');
+        if (redis && !this.scenarioState.selectedSolutionId) {
+          redis.configuration.cacheHitRatio = 0.05; // Hot key expired! 95% miss triggers stampede
+        }
+        const db = this.entities.get('postgres-1');
+        if (db && (db.resources.connections.current >= 14 || db.resources.cpu.utilizationPct > 65)) {
+          this.scenarioState.currentStageId = 'stage_degraded';
+          this.scenarioState.isSolutionModalOpen = true;
+          this.logEvent('error', '⚠️ Cache Stampede detected! Expired catalog key triggered thundering herd on PostgreSQL.');
+        }
+      } else if (this.activeScenario.id === 'scenario-2-backend-db') {
         const db = this.entities.get('postgres-1');
         if (db && (db.resources.connections.current >= 16 || db.status === 'OVERLOADED' || db.status === 'FAILING')) {
           this.scenarioState.currentStageId = 'stage_degraded';
@@ -694,7 +906,27 @@ export class SimulationEngine {
     let complexity = 80;
     let summary = '';
 
-    if (this.activeScenario.id === 'scenario-2-backend-db') {
+    if (this.activeScenario.id === 'scenario-3-redis-cache') {
+      if (this.scenarioState.selectedSolutionId === 'sol_mutex_stampede_lock') {
+        grade = 'S';
+        reliability = 99;
+        costEff = 100;
+        complexity = 90;
+        summary = 'Masterful engineering! Singleflight Mutex locking collapsed concurrent cache misses to 1 query, completely eliminating the thundering herd at $0 extra cost.';
+      } else if (this.scenarioState.selectedSolutionId === 'sol_deploy_redis') {
+        grade = 'A';
+        reliability = 92;
+        costEff = 85;
+        complexity = 85;
+        summary = 'High performance! Redis absorbed 90% of traffic from RAM in 1ms, though lock guards are still best practice for hot key expiry.';
+      } else {
+        grade = 'B';
+        reliability = 88;
+        costEff = 60;
+        complexity = 75;
+        summary = 'Horizontal scaling doubled read throughput, but disk reads are still 15x slower than in-memory caching and carry recurring VM costs.';
+      }
+    } else if (this.activeScenario.id === 'scenario-2-backend-db') {
       if (this.scenarioState.selectedSolutionId === 'sol_add_db_index') {
         grade = 'S';
         reliability = 99;
@@ -757,11 +989,14 @@ export class SimulationEngine {
       this.requestCounter++;
 
       const isDbScenario = this.activeScenario.id === 'scenario-2-backend-db';
+      const isCacheScenario = this.activeScenario.id === 'scenario-3-redis-cache';
 
       let requestPath: string[];
       let packetType: Packet['type'] = 'request';
 
-      if (isDbScenario) {
+      if (isCacheScenario) {
+        requestPath = ['user-group-1', 'frontend-1', 'api-1', 'redis-1'];
+      } else if (isDbScenario) {
         requestPath = ['user-group-1', 'frontend-1', 'api-1', 'postgres-1'];
       } else {
         const dns = this.entities.get('dns-1');
@@ -790,7 +1025,7 @@ export class SimulationEngine {
         path: requestPath,
         currentHopIndex: 0,
         progress: 0.0,
-        speed: isDbScenario ? 3.4 : 2.8,
+        speed: (isDbScenario || isCacheScenario) ? 3.4 : 2.8,
         status: 'in_flight',
         sizeKb: 1.2,
         createdAtTick: this.clock.getTick(),
@@ -836,16 +1071,69 @@ export class SimulationEngine {
             }
           }
 
+          // Scenario 3: Redis In-Memory Cache Hit or Miss
+          if (currentTargetId === 'redis-1') {
+            const redis = this.entities.get('redis-1');
+            const hitRatio = (redis?.configuration.cacheHitRatio as number) ?? 0.90;
+            const isHit = Math.random() < hitRatio;
+
+            if (isHit) {
+              // Cache Hit! Returned in 1ms directly from RAM
+              packet.type = 'cache_hit';
+              packet.isCached = true;
+              packet.path = ['redis-1', 'api-1', 'frontend-1', 'user-group-1'];
+              packet.currentHopIndex = 0;
+              packet.fromId = 'redis-1';
+              packet.toId = 'api-1';
+              packet.progress = 0.0;
+              packet.speed = 4.6;
+              continue;
+            } else {
+              // Cache Miss!
+              const api = this.entities.get('api-1');
+              const hasMutexLock = Boolean(api?.configuration.hasMutexLock);
+              const hasReplica = this.entities.has('postgres-replica-1');
+              const targetDb = hasReplica && (this.requestCounter % 2 === 0) ? 'postgres-replica-1' : 'postgres-1';
+
+              if (hasMutexLock && Math.random() < 0.94) {
+                // Mutex Lock: Deduplicate concurrent requests. They wait briefly and receive populated cache result!
+                packet.type = 'cache_hit';
+                packet.isCached = true;
+                packet.path = ['redis-1', 'api-1', 'frontend-1', 'user-group-1'];
+                packet.currentHopIndex = 0;
+                packet.fromId = 'redis-1';
+                packet.toId = 'api-1';
+                packet.progress = 0.0;
+                packet.speed = 4.2;
+                continue;
+              }
+
+              // Forward query to PostgreSQL
+              packet.type = 'sql_query';
+              packet.sqlQuery = 'SELECT * FROM products WHERE featured = true';
+              packet.path = ['redis-1', 'api-1', targetDb];
+              packet.currentHopIndex = 1;
+              packet.fromId = 'api-1';
+              packet.toId = targetDb;
+              packet.progress = 0.0;
+              packet.speed = 3.2;
+
+              const db = this.entities.get(targetDb);
+              this.handleDbArrival(packet, db);
+              continue;
+            }
+          }
+
           // Scenario 2: API -> Database SQL Query
-          if (currentTargetId === 'postgres-1') {
+          if (currentTargetId === 'postgres-1' || currentTargetId === 'postgres-replica-1') {
             packet.type = 'sql_query';
             packet.sqlQuery = 'SELECT * FROM orders WHERE status = ?';
             packet.currentHopIndex = nextHopIdx;
             packet.fromId = packet.path[nextHopIdx - 1]; // api or pgbouncer
-            packet.toId = 'postgres-1';
+            packet.toId = currentTargetId;
             packet.progress = 0.0;
 
-            const db = this.entities.get('postgres-1');
+            const db = this.entities.get(currentTargetId);
             const isSlow = !db?.configuration.hasIndex;
             packet.speed = isSlow ? 0.8 : 3.6; // Slow queries creep across the link
             this.handleDbArrival(packet, db);
@@ -866,18 +1154,27 @@ export class SimulationEngine {
           this.handleRequestArrival(packet, currentTargetId);
         } else if (packet.type === 'sql_query') {
           // SQL query finished executing on database -> return sql_result to API
+          const targetDbId = packet.toId;
           packet.type = 'sql_result';
-          packet.fromId = 'postgres-1';
+          packet.fromId = targetDbId;
           packet.toId = 'api-1';
           packet.progress = 0.0;
-          packet.speed = 3.0;
+          packet.speed = 3.2;
 
-          const db = this.entities.get('postgres-1');
+          const db = this.entities.get(targetDbId);
           if (db && db.resources.connections.current > 0) {
             db.resources.connections.current--;
           }
         } else if (packet.type === 'sql_result') {
-          // SQL result returned to API -> API creates HTTP response back through Frontend to User
+          // SQL result returned to API -> API populates Redis and responds to User
+          if (this.activeScenario.id === 'scenario-3-redis-cache') {
+            const redis = this.entities.get('redis-1');
+            if (redis && (redis.configuration.cacheHitRatio as number) < 0.5) {
+              if (this.scenarioState.selectedSolutionId === 'sol_mutex_stampede_lock') {
+                redis.configuration.cacheHitRatio = 0.98;
+              }
+            }
+          }
           packet.type = 'response';
           packet.path = ['api-1', 'frontend-1', 'user-group-1'];
           packet.currentHopIndex = 0;
@@ -886,7 +1183,7 @@ export class SimulationEngine {
           packet.progress = 0.0;
           packet.speed = 3.2;
           continue;
-        } else if (packet.type === 'response') {
+        } else if (packet.type === 'response' || packet.type === 'cache_hit') {
           const nextHopIdx = packet.currentHopIndex + 1;
           if (nextHopIdx < packet.path.length - 1) {
             packet.currentHopIndex = nextHopIdx;
@@ -1028,6 +1325,26 @@ export class SimulationEngine {
       if (newStatus === 'FAILING') worstHealth = 'FAILING';
       else if (newStatus === 'OVERLOADED' && worstHealth !== 'FAILING') worstHealth = 'OVERLOADED';
       else if (newStatus === 'DEGRADED' && worstHealth === 'HEALTHY') worstHealth = 'DEGRADED';
+    }
+
+    // 3. Update Redis Cache Node
+    const redis = this.entities.get('redis-1');
+    if (redis) {
+      const activeKeys = (redis.configuration.cachedKeysCount as number) || 1420;
+      redis.resources.memory.usedMb = Math.min(
+        redis.resources.memory.capacityMb,
+        Math.round(28 + activeKeys * 0.01 + (this.metrics.currentRps || 0) * 0.4)
+      );
+      redis.resources.memory.utilizationPct = Number(
+        ((redis.resources.memory.usedMb / redis.resources.memory.capacityMb) * 100).toFixed(1)
+      );
+      redis.resources.cpu.utilizationPct = Math.min(
+        100,
+        Number((2.5 + (this.metrics.currentRps || 0) * 0.2).toFixed(1))
+      );
+      redis.resources.cpu.usedCores = Number(
+        ((redis.resources.cpu.utilizationPct / 100) * redis.resources.cpu.capacityCores).toFixed(2)
+      );
     }
 
     this.metrics.clusterHealth = worstHealth;

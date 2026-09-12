@@ -238,7 +238,9 @@ export class CanvasRenderer {
 
     const isRequest = packet.type === 'request';
     let color = '#38bdf8'; // Request Cyan
-    if (packet.isCached) {
+    if (packet.type === 'cache_hit') {
+      color = '#f43f5e'; // Ruby / Crimson In-Memory Redis Cache Hit
+    } else if (packet.isCached) {
       color = '#c084fc'; // Purple / Violet Edge Cache Hit
     } else if (packet.type === 'sql_query') {
       color = '#f59e0b'; // Amber SQL Query
@@ -250,7 +252,8 @@ export class CanvasRenderer {
 
     // Outer Glow
     const isSql = packet.type === 'sql_query' || packet.type === 'sql_result';
-    const radius = packet.isCached ? 13 : isSql ? 12 : 10;
+    const isCache = packet.isCached || packet.type === 'cache_hit';
+    const radius = isCache ? 13 : isSql ? 12 : 10;
     const gradient = ctx.createRadialGradient(px, py, 0, px, py, radius);
     gradient.addColorStop(0, color);
     gradient.addColorStop(0.6, `${color}44`);
@@ -359,6 +362,22 @@ export class CanvasRenderer {
       ctx.font = '10px "Fira Code", monospace';
       ctx.fillStyle = hasIndex ? '#10b981' : '#f43f5e';
       ctx.fillText(hasIndex ? '3ms' : '850ms', x + w - 14, y + 78);
+    } else if (entity.type === 'redis') {
+      const mem = entity.resources.memory;
+      const memPct = Math.round((mem.usedMb / mem.capacityMb) * 100);
+      const hitPct = Math.round(((entity.configuration.cacheHitRatio as number) || 0.9) * 100);
+
+      this.drawMiniBar(ctx, x + 12, y + 46, w - 24, 'RAM', `${mem.usedMb}MB / ${mem.capacityMb}MB`, memPct, '#ef4444');
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#ef4444';
+      ctx.font = '600 10px Inter, sans-serif';
+      ctx.fillText(`⚡ Cache Hit: ${hitPct}%`, x + 14, y + 78);
+
+      ctx.textAlign = 'right';
+      ctx.font = '10px "Fira Code", monospace';
+      ctx.fillStyle = '#10b981';
+      ctx.fillText('1ms LATENCY', x + w - 14, y + 78);
     } else if (entity.type === 'pgbouncer') {
       ctx.textAlign = 'left';
       ctx.fillStyle = '#10b981';

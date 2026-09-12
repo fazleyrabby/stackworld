@@ -13,9 +13,9 @@ import { VictoryModal } from './ui/VictoryModal';
 export function App() {
   const engine = useMemo(() => new SimulationEngine({ initialRps: 6 }), []);
   const [snapshot, setSnapshot] = useState<SimulationSnapshot>(() => engine.getSnapshot());
-  const [activeScenarioId, setActiveScenarioId] = useState<'scenario-1-static-site' | 'scenario-2-backend-db'>(
-    'scenario-1-static-site'
-  );
+  const [activeScenarioId, setActiveScenarioId] = useState<
+    'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache'
+  >('scenario-1-static-site');
 
   useEffect(() => {
     engine.start();
@@ -30,7 +30,9 @@ export function App() {
     };
   }, [engine]);
 
-  const handleSelectScenario = (scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db') => {
+  const handleSelectScenario = (
+    scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache'
+  ) => {
     setActiveScenarioId(scenarioId);
     engine.loadScenario(scenarioId);
   };

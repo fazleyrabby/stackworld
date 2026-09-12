@@ -15,6 +15,7 @@ export type EntityType =
   | 'api'
   | 'database' 
   | 'pgbouncer'
+  | 'redis'
   | 'server' 
   | 'load_balancer';
 
@@ -80,7 +81,7 @@ export interface Packet {
   id: string;
   fromId: string;
   toId: string;
-  type: 'request' | 'response' | 'sql_query' | 'sql_result';
+  type: 'request' | 'response' | 'sql_query' | 'sql_result' | 'cache_query' | 'cache_hit';
   path: string[];            // Multi-hop path: e.g. ['user', 'dns', 'host']
   currentHopIndex: number;   // Current index in path
   progress: number;          // 0.0 to 1.0 along the current hop
