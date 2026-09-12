@@ -10,9 +10,7 @@
 
 <br/>
 
-<p align="center">
-  <img src="docs/assets/banner.jpg" alt="StackWorld Infrastructure Simulator Banner" width="100%" />
-</p>
+![StackWorld Infrastructure Simulator Banner](https://raw.githubusercontent.com/fazleyrabby/stackworld/main/docs/assets/banner.jpg)
 
 ---
 
