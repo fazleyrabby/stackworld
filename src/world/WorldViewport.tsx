@@ -42,13 +42,11 @@ export const WorldViewport: React.FC<WorldViewportProps> = ({ engine }) => {
     let lastTime = performance.now();
     let latestSnapshot: SimulationSnapshot = engine.getSnapshot();
 
-    // Subscribe to engine state
     const unsubscribe = engine.subscribe((snapshot) => {
       latestSnapshot = snapshot;
       interaction.updateSnapshot(snapshot);
     });
 
-    // 60-120 FPS Canvas Rendering loop
     const renderLoop = (time: number) => {
       const dt = (time - lastTime) / 1000;
       lastTime = time;
@@ -92,44 +90,27 @@ export const WorldViewport: React.FC<WorldViewportProps> = ({ engine }) => {
   };
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-slate-950 select-none">
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full block cursor-grab active:cursor-grabbing"
-      />
+    <div className="canvas-container">
+      <canvas ref={canvasRef} className="sim-canvas" />
 
       {/* Floating Canvas Controls (Bottom Left) */}
-      <div className="absolute bottom-20 left-6 flex items-center gap-1.5 p-1.5 rounded-lg bg-slate-900/90 backdrop-blur-md border border-slate-800 shadow-xl text-slate-300">
-        <button
-          onClick={handleZoomIn}
-          title="Zoom In"
-          className="p-1.5 hover:bg-slate-800 rounded transition-colors"
-        >
-          <ZoomIn size={16} />
+      <div className="canvas-controls">
+        <button onClick={handleZoomIn} title="Zoom In" className="canvas-btn">
+          <ZoomIn size={15} />
         </button>
-        <span className="text-xs font-mono px-1.5 min-w-[42px] text-center font-semibold text-slate-400">
-          {zoomDisplay}%
-        </span>
-        <button
-          onClick={handleZoomOut}
-          title="Zoom Out"
-          className="p-1.5 hover:bg-slate-800 rounded transition-colors"
-        >
-          <ZoomOut size={16} />
+        <span className="zoom-label">{zoomDisplay}%</span>
+        <button onClick={handleZoomOut} title="Zoom Out" className="canvas-btn">
+          <ZoomOut size={15} />
         </button>
-        <div className="w-[1px] h-4 bg-slate-800 mx-1" />
-        <button
-          onClick={handleResetCamera}
-          title="Reset View"
-          className="p-1.5 hover:bg-slate-800 rounded transition-colors"
-        >
-          <RotateCcw size={15} />
+        <div className="canvas-controls-divider" />
+        <button onClick={handleResetCamera} title="Reset View" className="canvas-btn">
+          <RotateCcw size={14} />
         </button>
       </div>
 
       {/* Canvas Interaction Hint */}
-      <div className="absolute bottom-20 left-44 hidden md:flex items-center gap-2 text-xs font-mono text-slate-500 bg-slate-900/60 px-3 py-1.5 rounded-md border border-slate-800/60 pointer-events-none">
-        <Move size={13} className="text-sky-400" />
+      <div className="canvas-hint">
+        <Move size={13} color="var(--cyan)" />
         <span>Drag canvas to pan • Drag nodes to relocate</span>
       </div>
     </div>

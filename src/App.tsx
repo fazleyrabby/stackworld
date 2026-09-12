@@ -8,15 +8,12 @@ import { ControlBar } from './ui/ControlBar';
 import { EventLog } from './ui/EventLog';
 
 export function App() {
-  // Create single engine instance
   const engine = useMemo(() => new SimulationEngine({ initialRps: 6 }), []);
   const [snapshot, setSnapshot] = useState<SimulationSnapshot>(() => engine.getSnapshot());
 
   useEffect(() => {
-    // Start simulation clock
     engine.start();
 
-    // Subscribe to engine state changes (at 20Hz)
     const unsubscribe = engine.subscribe((newSnapshot) => {
       setSnapshot(newSnapshot);
     });
@@ -28,7 +25,7 @@ export function App() {
   }, [engine]);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
+    <div className="app-container">
       {/* 2D Canvas Simulation World */}
       <WorldViewport engine={engine} />
 
