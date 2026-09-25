@@ -9,13 +9,16 @@ import { EventLog } from './ui/EventLog';
 import { ObjectiveTracker } from './ui/ObjectiveTracker';
 import { SolutionModal } from './ui/SolutionModal';
 import { VictoryModal } from './ui/VictoryModal';
+import { CoachOverlay } from './ui/CoachOverlay';
+import { useUiStore } from './state/useUiStore';
 
 export function App() {
   const engine = useMemo(() => new SimulationEngine({ initialRps: 6 }), []);
   const [snapshot, setSnapshot] = useState<SimulationSnapshot>(() => engine.getSnapshot());
-  const [activeScenarioId, setActiveScenarioId] = useState<
-    'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache'
-  >('scenario-1-static-site');
+  const [activeScenarioId, setActiveScenarioId] = useState<string>(
+    () => engine.getActiveScenario().id
+  );
+  const setSelectedEntityId = useUiStore((state) => state.setSelectedEntityId);
 
   useEffect(() => {
     engine.start();
@@ -30,11 +33,11 @@ export function App() {
     };
   }, [engine]);
 
-  const handleSelectScenario = (
-    scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache'
-  ) => {
+  const handleSelectScenario = (scenarioId: string) => {
     setActiveScenarioId(scenarioId);
     engine.loadScenario(scenarioId);
+    // Old selection no longer exists in the new topology; clear Inspector noise.
+    setSelectedEntityId(null);
   };
 
   return (
@@ -67,6 +70,7 @@ export function App() {
       {/* Incident Diagnosis & Solution Choice Modal */}
       <SolutionModal
         isOpen={snapshot.scenarioState.isSolutionModalOpen}
+        scenario={snapshot.scenario}
         onClose={() => engine.closeSolutionModal()}
         onSelectSolution={(solId) => engine.applySolution(solId)}
       />
@@ -77,6 +81,9 @@ export function App() {
         scenarioState={snapshot.scenarioState}
         onClose={() => engine.closeVictoryModal()}
       />
+
+      {/* First-run "How to read this world" onboarding guide */}
+      <CoachOverlay />
     </div>
   );
 }

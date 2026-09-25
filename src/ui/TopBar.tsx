@@ -1,17 +1,19 @@
 import React from 'react';
 import { SimulationSnapshot, HealthStatus } from '../shared/types';
-import { Activity, Bell, DollarSign, Globe, Layers, Zap } from 'lucide-react';
+import { Activity, Bell, DollarSign, Globe, Layers, Zap, BookOpen } from 'lucide-react';
 import { useUiStore } from '../state/useUiStore';
+import { SCENARIO_LIST } from '../scenarios';
 
 interface TopBarProps {
   snapshot: SimulationSnapshot;
-  activeScenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache';
-  onSelectScenario: (scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache') => void;
+  activeScenarioId: string;
+  onSelectScenario: (scenarioId: string) => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ snapshot, activeScenarioId, onSelectScenario }) => {
   const toggleEventLog = useUiStore((state) => state.toggleEventLog);
   const isEventLogOpen = useUiStore((state) => state.isEventLogOpen);
+  const setCoachOpen = useUiStore((state) => state.setCoachOpen);
 
   const formatSimTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -50,16 +52,16 @@ export const TopBar: React.FC<TopBarProps> = ({ snapshot, activeScenarioId, onSe
 
         <div className="scenario-badge">
           <Layers size={13} color="var(--cyan)" />
-          <span className="label">Scenario:</span>
+          <span className="label">Lesson:</span>
           <select
             value={activeScenarioId}
-            onChange={(e) => onSelectScenario(e.target.value as 'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache')}
+            onChange={(e) => onSelectScenario(e.target.value)}
             className="scenario-select"
             aria-label="Select simulation scenario"
           >
-            <option value="scenario-1-static-site">Phase 1: Keep Website Online</option>
-            <option value="scenario-2-backend-db">Phase 2: The Slow Database Incident</option>
-            <option value="scenario-3-redis-cache">Phase 3: The Cache Stampede Crisis</option>
+            {SCENARIO_LIST.map((entry) => (
+              <option key={entry.id} value={entry.id}>{entry.label}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -84,12 +86,12 @@ export const TopBar: React.FC<TopBarProps> = ({ snapshot, activeScenarioId, onSe
         {/* Requests Telemetry */}
         <div className="telemetry-pill">
           <Globe size={13} color="var(--text-muted)" />
-          <span className="telemetry-label">RPS:</span>
+          <span className="telemetry-label">Requests / sec:</span>
           <span className="tabular-num-slot rps-slot">
             {snapshot.metrics.currentRps.toFixed(1)}
           </span>
           <span className="telemetry-divider">|</span>
-          <span className="telemetry-label">TOTAL:</span>
+          <span className="telemetry-label">Served:</span>
           <span className="tabular-num-slot total-slot">
             {snapshot.metrics.requestsTotal}
           </span>
@@ -100,14 +102,23 @@ export const TopBar: React.FC<TopBarProps> = ({ snapshot, activeScenarioId, onSe
       <div className="top-bar-right">
         <div className="telemetry-pill">
           <DollarSign size={13} color="var(--emerald)" />
-          <span className="telemetry-label">Budget:</span>
+          <span className="telemetry-label">Monthly spend:</span>
           <span className="tabular-num-slot budget-slot">
             ${snapshot.metrics.monthlyCost.toFixed(2)}
           </span>
           <span style={{ color: 'var(--text-muted)' }}>
-            / ${activeScenarioId === 'scenario-3-redis-cache' ? '60.00' : activeScenarioId === 'scenario-2-backend-db' ? '45.00' : '20.00'}
+            / ${snapshot.scenario.startingBudgetMonthly.toFixed(2)} budget
           </span>
         </div>
+
+        <button
+          onClick={() => setCoachOpen(true)}
+          className="btn-event-log"
+          title="How do I read this world?"
+        >
+          <BookOpen size={13} />
+          <span>Guide</span>
+        </button>
 
         <button
           onClick={toggleEventLog}

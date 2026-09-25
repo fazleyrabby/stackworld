@@ -17,7 +17,9 @@ export type EntityType =
   | 'pgbouncer'
   | 'redis'
   | 'server' 
-  | 'load_balancer';
+  | 'load_balancer'
+  | 'queue'
+  | 'worker';
 
 export interface Vector2D {
   x: number;
@@ -91,6 +93,7 @@ export interface Packet {
   createdAtTick: number;
   isCached?: boolean;        // True if served from CDN edge cache
   sqlQuery?: string;         // SQL statement for database queries
+  jobAccepted?: boolean;     // True for 202 Accepted responses from the async job pipeline
 }
 
 export interface SimulationMetrics {
@@ -112,7 +115,7 @@ export interface SimulationEvent {
   entityId?: string;
 }
 
-import { ScenarioState } from '../scenarios/types';
+import { ScenarioDefinition, ScenarioState } from '../scenarios/types';
 
 export interface SimulationSnapshot {
   tick: number;
@@ -124,6 +127,7 @@ export interface SimulationSnapshot {
   packets: Packet[];
   metrics: SimulationMetrics;
   events: SimulationEvent[];
+  scenario: ScenarioDefinition;
   scenarioState: ScenarioState;
 }
 

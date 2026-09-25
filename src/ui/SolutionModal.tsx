@@ -1,17 +1,20 @@
 import React from 'react';
-import { staticSiteScenario } from '../scenarios/staticSiteScenario';
-import { X, ArrowUpRight, Check, AlertCircle, Zap, Server, Network } from 'lucide-react';
+import { ScenarioDefinition } from '../scenarios/types';
+import { X, ArrowUpRight, Check, AlertCircle, Zap, Server, Network, Layers } from 'lucide-react';
 
 interface SolutionModalProps {
   isOpen: boolean;
+  scenario: ScenarioDefinition;
   onClose: () => void;
   onSelectSolution: (solutionId: string) => void;
 }
 
-export const SolutionModal: React.FC<SolutionModalProps> = ({ isOpen, onClose, onSelectSolution }) => {
+export const SolutionModal: React.FC<SolutionModalProps> = ({ isOpen, scenario, onClose, onSelectSolution }) => {
   if (!isOpen) return null;
 
-  const solutions = staticSiteScenario.availableSolutions;
+  // Solutions and incident framing come from the ACTIVE scenario definition.
+  const solutions = scenario.availableSolutions;
+  const degradedStage = scenario.stages.find((s) => s.id === 'stage_degraded');
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
@@ -21,6 +24,10 @@ export const SolutionModal: React.FC<SolutionModalProps> = ({ isOpen, onClose, o
         return <Zap size={16} color="#c084fc" />;
       case 'horizontal':
         return <Network size={16} color="#34d399" />;
+      case 'cache':
+        return <Zap size={16} color="#ef4444" />;
+      case 'queue':
+        return <Layers size={16} color="#f97316" />;
       default:
         return <Server size={16} />;
     }
@@ -36,9 +43,14 @@ export const SolutionModal: React.FC<SolutionModalProps> = ({ isOpen, onClose, o
               <AlertCircle size={13} />
               <span>INCIDENT DIAGNOSIS</span>
             </div>
-            <h2 className="modal-title">Origin Server Saturated Under Traffic Surge</h2>
+            <h2 className="modal-title">{degradedStage ? degradedStage.title.replace(/^\d+\.\s*/, '') : scenario.title}</h2>
             <p className="modal-desc">
-              Traffic surged from 6 to 38+ req/s. Single Nginx host CPU exceeded 85% and socket connections are dropping. Select an architectural solution to stabilize the system:
+              {degradedStage
+                ? degradedStage.instructions
+                : 'Select an architectural solution to stabilize the system:'}
+            </p>
+            <p className="modal-hint">
+              There is no single “correct” answer — each option trades money, reliability, and simplicity differently. Read the trade-offs, pick one, then watch how the world reacts.
             </p>
           </div>
           <button onClick={onClose} className="inspector-close-btn" title="Close Dialog">
@@ -67,7 +79,7 @@ export const SolutionModal: React.FC<SolutionModalProps> = ({ isOpen, onClose, o
 
               {/* Pros */}
               <div className="points-group">
-                <div className="points-label positive">Trade-off Advantages</div>
+                <div className="points-label positive">What you gain</div>
                 {sol.pros.map((pro, i) => (
                   <div key={i} className="point-row">
                     <Check size={12} className="point-icon positive" />
@@ -78,7 +90,7 @@ export const SolutionModal: React.FC<SolutionModalProps> = ({ isOpen, onClose, o
 
               {/* Cons */}
               <div className="points-group">
-                <div className="points-label negative">Trade-off Drawbacks</div>
+                <div className="points-label negative">What it costs you</div>
                 {sol.cons.map((con, i) => (
                   <div key={i} className="point-row">
                     <span className="point-icon negative">•</span>

@@ -4,7 +4,7 @@ export interface ArchitecturalSolution {
   id: string;
   name: string;
   tagline: string;
-  category: 'vertical' | 'cdn' | 'horizontal' | 'cache';
+  category: 'vertical' | 'cdn' | 'horizontal' | 'cache' | 'queue';
   costMonthlyDelta: number;
   complexity: 'Low' | 'Medium' | 'High';
   reliability: 'Moderate' | 'High' | 'Very High';

@@ -315,6 +315,8 @@ export class CanvasRenderer {
     let color = '#38bdf8'; // Request Cyan
     if (packet.type === 'cache_hit') {
       color = '#ff2a6d'; // Ruby / Crimson In-Memory Redis Cache Hit
+    } else if (packet.type === 'cache_query') {
+      color = '#f97316'; // Orange Background Job (queue -> worker)
     } else if (packet.isCached) {
       color = '#c084fc'; // Purple / Violet Edge Cache Hit
     } else if (packet.type === 'sql_query') {
@@ -479,6 +481,37 @@ export class CanvasRenderer {
       ctx.font = '10px "Fira Code", monospace';
       ctx.fillStyle = '#10b981';
       ctx.fillText('1ms LATENCY', x + w - 14, y + 78);
+    } else if (entity.type === 'queue') {
+      const pending = Number(entity.configuration.pendingJobs ?? 0);
+      const backlogColor = pending > 100 ? '#ef4444' : pending > 20 ? '#f59e0b' : '#10b981';
+
+      this.drawMiniBar(ctx, x + 12, y + 46, w - 24, 'Backlog', `${pending} jobs`, Math.min(100, pending / 2), backlogColor);
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#f97316';
+      ctx.font = '600 10px Inter, sans-serif';
+      ctx.fillText('⚙ BullMQ — Redis Streams', x + 14, y + 78);
+
+      ctx.textAlign = 'right';
+      ctx.font = '10px "Fira Code", monospace';
+      ctx.fillStyle = backlogColor;
+      ctx.fillText(pending > 0 ? 'DRAINING?' : 'EMPTY', x + w - 14, y + 78);
+    } else if (entity.type === 'worker') {
+      const cpuPct = Math.round(entity.resources.cpu.utilizationPct);
+      const inflight = entity.resources.connections.current;
+      const concurrency = Number(entity.configuration.concurrency ?? 16);
+
+      this.drawMiniBar(ctx, x + 12, y + 46, w - 24, 'CPU', `${cpuPct}%`, cpuPct, this.getUtilizationColor(cpuPct));
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#f97316';
+      ctx.font = '600 10px Inter, sans-serif';
+      ctx.fillText(`⚙ Consuming: ${entity.configuration.consumes ?? 'queue'}`, x + 14, y + 78);
+
+      ctx.textAlign = 'right';
+      ctx.font = '10px "Fira Code", monospace';
+      ctx.fillStyle = '#10b981';
+      ctx.fillText(`${inflight}/${concurrency} JOBS`, x + w - 14, y + 78);
     } else if (entity.type === 'pgbouncer') {
       ctx.textAlign = 'left';
       ctx.fillStyle = '#10b981';
@@ -531,11 +564,12 @@ export class CanvasRenderer {
       ctx.fillText('50/50 SPLIT', x + w - 14, y + 48);
     } else {
       // User / Client node
+      const clients = Number(entity.configuration.activeClients ?? entity.configuration.browserClients ?? 240);
       ctx.textAlign = 'left';
       ctx.fillStyle = '#94a3b8';
       ctx.font = '11px Inter, sans-serif';
-      ctx.fillText('Clients: 240 active', x + 14, y + 50);
-      ctx.fillText('Region: Global DNS', x + 14, y + 68);
+      ctx.fillText(`Clients: ${clients} active`, x + 14, y + 50);
+      ctx.fillText('Region: Global Internet', x + 14, y + 68);
 
       ctx.textAlign = 'right';
       ctx.font = '10px "Fira Code", monospace';

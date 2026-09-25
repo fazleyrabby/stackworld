@@ -1,6 +1,5 @@
 import React from 'react';
 import { SimulationSnapshot } from '../shared/types';
-import { staticSiteScenario } from '../scenarios/staticSiteScenario';
 import { Target, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 interface ObjectiveTrackerProps {
@@ -9,15 +8,17 @@ interface ObjectiveTrackerProps {
 }
 
 export const ObjectiveTracker: React.FC<ObjectiveTrackerProps> = ({ snapshot, onOpenSolutions }) => {
-  const stage = staticSiteScenario.stages.find(
+  // Read stages from the ACTIVE scenario (snapshot.scenario), not a hardcoded one.
+  const scenario = snapshot.scenario;
+  const stage = scenario.stages.find(
     (s) => s.id === snapshot.scenarioState.currentStageId
-  ) || staticSiteScenario.stages[0];
+  ) || scenario.stages[0];
 
   const isDegraded = snapshot.scenarioState.currentStageId === 'stage_degraded';
   const isVerifying = snapshot.scenarioState.currentStageId === 'stage_solution_applied';
   const isVictory = snapshot.scenarioState.currentStageId === 'stage_victory';
 
-  const requiredSeconds = staticSiteScenario.successConditions.minSustainedSeconds;
+  const requiredSeconds = scenario.successConditions.minSustainedSeconds;
   const sustainedSeconds = Math.min(requiredSeconds, Math.round(snapshot.scenarioState.sustainedHealthySeconds));
 
   return (
@@ -33,7 +34,7 @@ export const ObjectiveTracker: React.FC<ObjectiveTrackerProps> = ({ snapshot, on
           )}
         </div>
         <div className="objective-text">
-          <div className="objective-title">{stage.title}</div>
+          <div className="objective-title">{scenario.title} — {stage.title}</div>
           <div className="objective-desc">{stage.instructions}</div>
         </div>
       </div>
@@ -49,7 +50,7 @@ export const ObjectiveTracker: React.FC<ObjectiveTrackerProps> = ({ snapshot, on
 
         {isDegraded && (
           <button onClick={onOpenSolutions} className="btn-resolve-alert">
-            Choose Architecture Fix
+            ⚠️ Fix The Incident — Choose Architecture
           </button>
         )}
       </div>

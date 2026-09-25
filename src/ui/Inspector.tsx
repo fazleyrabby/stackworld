@@ -19,7 +19,9 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
   if (!entity) return null;
 
   const isRedis = entity.type === 'redis';
-  const isServer = entity.type === 'static_host' || entity.type === 'server' || entity.type === 'api' || entity.type === 'database' || isRedis;
+  const isQueue = entity.type === 'queue';
+  const isWorker = entity.type === 'worker';
+  const isServer = entity.type === 'static_host' || entity.type === 'server' || entity.type === 'api' || entity.type === 'database' || isRedis || isQueue || isWorker;
   const isDb = entity.type === 'database';
   const isPooler = entity.type === 'pgbouncer';
 
@@ -35,6 +37,8 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
 
   const getNodeIcon = () => {
     if (entity.type === 'redis') return <Zap size={16} color="#ef4444" />;
+    if (entity.type === 'queue') return <Layers size={16} color="#f97316" />;
+    if (entity.type === 'worker') return <Cpu size={16} color="#f97316" />;
     if (entity.type === 'database') return <Database size={16} />;
     if (entity.type === 'pgbouncer') return <Layers size={16} />;
     if (isServer) return <Server size={16} />;
@@ -269,6 +273,46 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
                     </div>
                   </div>
                 )}
+                {/* Job Queue Backlog Profile */}
+                {isQueue && (
+                  <div className="metric-card" style={{ border: '1px solid rgba(249, 115, 22, 0.4)' }}>
+                    <div className="metric-card-top">
+                      <div className="metric-card-title">
+                        <Layers size={14} color="#f97316" />
+                        <span>Job Queue Backlog</span>
+                      </div>
+                      <span
+                        className={`health-pill ${Number(entity.configuration.pendingJobs ?? 0) > 100 ? 'health-failing' : 'health-healthy'}`}
+                        style={{ padding: '2px 6px', fontSize: '10px', minWidth: 'unset' }}
+                      >
+                        {Boolean(entity.configuration.pendingJobs) ? `${Number(entity.configuration.pendingJobs)} PENDING` : 'DRAINING'}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.6', marginTop: '6px' }}>
+                      Buffers slow background jobs so the API can respond instantly with 202 Accepted. A backlog that only
+                      grows means there are no (or too few) workers consuming it.
+                    </p>
+                  </div>
+                )}
+
+                {/* Async Worker Profile */}
+                {isWorker && (
+                  <div className="metric-card" style={{ border: '1px solid rgba(249, 115, 22, 0.4)' }}>
+                    <div className="metric-card-top">
+                      <div className="metric-card-title">
+                        <Cpu size={14} color="#f97316" />
+                        <span>Background Worker</span>
+                      </div>
+                      <span className="health-pill health-healthy" style={{ padding: '2px 6px', fontSize: '10px', minWidth: 'unset' }}>
+                        CONCURRENCY {String(entity.configuration.concurrency ?? 16)}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.6', marginTop: '6px' }}>
+                      Consumes jobs from the queue outside the request path. Add more workers to drain a backlog faster —
+                      without ever touching the API.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : isPooler ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -339,10 +383,7 @@ export const Inspector: React.FC<InspectorProps> = ({ snapshot }) => {
       <div className="inspector-footer">
         <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Terminal size={12} color="var(--cyan)" />
-          <span>Coordinates:</span>
-        </span>
-        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
-          x: {entity.position.x}, y: {entity.position.y}
+          <span>Drag nodes to rearrange • scroll to zoom • Space to pause</span>
         </span>
       </div>
     </aside>

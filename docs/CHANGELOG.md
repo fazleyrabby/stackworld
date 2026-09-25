@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.4.0] - 2026-09-25
+
+### Added
+- **Phase 12: Queues & Asynchronous Processing**:
+  - New Scenario 4: *"The Synchronous Job Crisis"* (`scenario-4-job-queues`), modeling a Billing API that renders invoice PDFs inline on the request path (`User → Checkout → Billing API → PostgreSQL`).
+  - New node types: **BullMQ Job Queue** (`queue`) and **Invoice PDF Worker** (`worker`), with live backlog/concurrency meters on the canvas and dedicated Inspector profiles.
+  - `202 Accepted` request short-circuit plus orange background-job particles flowing queue → worker.
+  - Three architectural remedies with distinct grades: **Job Queue + Workers** (S), **Vertical API Upgrade** (B), and the educational **Queue-Only Trap** (C) — a queue with zero consumers whose hidden backlog grows forever.
+  - Central scenario registry (`src/scenarios/index.ts`); selector, engine, and HUD all resolve from it — adding a lesson no longer requires touching union types across the codebase.
+- **UI Clarity Overhaul**:
+  - New `CoachOverlay` onboarding guide ("How to Read This World"): packet color legend, health state meanings, the incident loop, and playback controls. Auto-shows on first visit; re-openable via the TopBar **Guide** button.
+  - Objective, incident diagnosis, solution cards, and budget ceiling are now driven by the **active scenario** carried in `SimulationSnapshot`.
+  - Friendlier HUD copy: "Lesson", "Requests / sec", "Served", "Monthly spend / budget", "What you gain / What it costs you".
+  - Inspector footer coordinates readout replaced with practical canvas control hints; user node now shows its real simulated client count.
+
+### Fixed
+- **Connection accounting bug (recovery was impossible)**: `handleResponseArrival` decremented the penultimate hop instead of the server that served the request, so `connections.current` only ever grew and nodes could never heal after a solution was deployed.
+- **Hardcoded Scenario 1 content leaked into every lesson**: the ObjectiveTracker showed Lesson 1 stage text and the Incident Diagnosis modal offered Lesson 1's CDN/LB solutions while playing Lessons 2–3.
+- **Flaky test eliminated**: the engine now runs on a seeded deterministic PRNG (mulberry32) instead of `Math.random()` inside packet routing, honoring the "deterministic simulation engine" principle.
+
+---
+
 ## [0.3.0] - 2026-09-12
 
 ### Added

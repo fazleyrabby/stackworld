@@ -7,6 +7,8 @@
  * Supports:
  * - Scenario 1: Keep The Website Online (Static Host + DNS + CDN/LB)
  * - Scenario 2: The Slow Database Incident (Frontend + Backend API + PostgreSQL)
+ * - Scenario 3: The Cache Stampede Crisis (Redis caching + thundering herd)
+ * - Scenario 4: The Synchronous Job Crisis (Job Queue + async workers)
  * - Dynamic live topology mutations
  * - Multi-tier routing and SQL query simulation
  */
@@ -22,10 +24,24 @@ import {
   Vector2D,
 } from '../shared/types';
 import { SimulationClock } from './Clock';
+import { getScenario } from '../scenarios';
 import { staticSiteScenario } from '../scenarios/staticSiteScenario';
-import { backendDbScenario } from '../scenarios/backendDbScenario';
-import { redisCacheScenario } from '../scenarios/redisCacheScenario';
 import { ScenarioDefinition, ScenarioState } from '../scenarios/types';
+
+/**
+ * Deterministic PRNG (mulberry32). The engine must be reproducible tick-for-tick
+ * for unit tests and replay, so no Math.random() inside simulation logic.
+ */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 export interface SimulationEngineConfig {
   seed?: number;
@@ -65,6 +81,7 @@ export class SimulationEngine {
   private nextPacketId: number = 1;
   private nextEventId: number = 1;
   private requestCounter: number = 0;
+  private rng: () => number;
   private completedRequestsWindow: { tick: number; latencyMs: number; success: boolean }[] = [];
 
   // Snapshot listeners
@@ -72,13 +89,10 @@ export class SimulationEngine {
 
   constructor(config: SimulationEngineConfig = {}) {
     this.clock = new SimulationClock(20);
+    this.rng = mulberry32(config.seed ?? 1337);
     this.targetRps = config.initialRps ?? 6;
 
-    if (config.initialScenarioId === 'scenario-2-backend-db') {
-      this.loadScenario('scenario-2-backend-db');
-    } else {
-      this.loadScenario('scenario-1-static-site');
-    }
+    this.loadScenario(config.initialScenarioId ?? staticSiteScenario.id);
 
     this.clock.subscribe((tick, _simTimeSeconds, dtSeconds) => {
       this.tick(tick, _simTimeSeconds, dtSeconds);
@@ -163,9 +177,11 @@ export class SimulationEngine {
   }
 
   /**
-   * Load Scenario 1 (Static Site), Scenario 2 (Backend + Database), or Scenario 3 (Redis Cache)
+   * Load any registered scenario by id (see src/scenarios/index.ts registry).
    */
-  public loadScenario(scenarioId: 'scenario-1-static-site' | 'scenario-2-backend-db' | 'scenario-3-redis-cache'): void {
+  public loadScenario(scenarioId: string): void {
+    const scenario = getScenario(scenarioId) ?? staticSiteScenario;
+
     this.clock.reset();
     this.entities.clear();
     this.connections.clear();
@@ -174,18 +190,30 @@ export class SimulationEngine {
     this.completedRequestsWindow = [];
     this.pendingRequestAccumulator = 0;
 
-    if (scenarioId === 'scenario-3-redis-cache') {
-      this.activeScenario = redisCacheScenario;
+    this.activeScenario = scenario;
+    this.metrics = {
+      requestsTotal: 0,
+      requestsSuccessful: 0,
+      requestsFailed: 0,
+      currentRps: 0,
+      averageLatencyMs: 22,
+      clusterHealth: 'HEALTHY',
+      monthlyCost: 15.0,
+    };
+
+    if (scenario.id === 'scenario-4-job-queues') {
+      this.targetRps = 6;
+      this.metrics.monthlyCost = 45.0;
+      this.initializeScenario4();
+    } else if (scenario.id === 'scenario-3-redis-cache') {
       this.targetRps = 8;
       this.metrics.monthlyCost = 45.0;
       this.initializeScenario3();
-    } else if (scenarioId === 'scenario-2-backend-db') {
-      this.activeScenario = backendDbScenario;
+    } else if (scenario.id === 'scenario-2-backend-db') {
       this.targetRps = 10;
       this.metrics.monthlyCost = 35.0;
       this.initializeScenario2();
     } else {
-      this.activeScenario = staticSiteScenario;
       this.targetRps = 6;
       this.metrics.monthlyCost = 15.0;
       this.initializeScenario1();
@@ -200,6 +228,10 @@ export class SimulationEngine {
     };
 
     this.emitSnapshot();
+  }
+
+  public getScenarioId(): string {
+    return this.activeScenario.id;
   }
 
   /**
@@ -257,6 +289,24 @@ export class SimulationEngine {
       if (redis) redis.position = { x: 380, y: -100 };
       if (db) db.position = { x: 380, y: 100 };
       if (rep) rep.position = { x: 640, y: 100 };
+    } else if (this.activeScenario.id === 'scenario-4-job-queues') {
+      const user = this.entities.get('user-group-1');
+      const fe = this.entities.get('frontend-1');
+      const api = this.entities.get('api-1');
+      const queue = this.entities.get('queue-1');
+      const worker = this.entities.get('worker-1');
+      const db = this.entities.get('postgres-1');
+
+      if (user) user.position = { x: -440, y: 0 };
+      if (fe) fe.position = { x: -160, y: 0 };
+      if (queue) {
+        if (api) api.position = { x: 120, y: 0 };
+        if (queue) queue.position = { x: 400, y: 0 };
+        if (worker) worker.position = { x: 660, y: 0 };
+      } else {
+        if (api) api.position = { x: 160, y: 0 };
+      }
+      if (db) db.position = { x: 120, y: 200 };
     }
 
     this.emitSnapshot();
@@ -530,6 +580,93 @@ export class SimulationEngine {
       this.logEvent('success', 'PostgreSQL Read Replica active. Read queries split across instances.');
     }
 
+    // Handle Scenario 4 Solutions
+    if (solutionId === 'sol_vertical_billing') {
+      const api = this.entities.get('api-1');
+      if (api) {
+        api.name = 'Billing API (4 vCPU / 8GB)';
+        api.resources.cpu.capacityCores = 4;
+        api.resources.memory.capacityMb = 8192;
+        api.resources.connections.max = 128;
+        api.configuration.maxRps = 95;
+        api.costMonthly += 30.0;
+      }
+      this.metrics.monthlyCost += 30.0;
+      this.logEvent('success', 'Billing API vertically scaled to 4 vCPUs. PDFs still render inside every request.');
+    } else if (solutionId === 'sol_queue_only' || solutionId === 'sol_async_queue') {
+      const queue: Entity = {
+        id: 'queue-1',
+        type: 'queue',
+        name: 'BullMQ Job Queue (Redis)',
+        position: { x: 400, y: 0 },
+        status: 'HEALTHY',
+        resources: {
+          cpu: { capacityCores: 1, usedCores: 0.05, utilizationPct: 5.0 },
+          memory: { capacityMb: 1024, usedMb: 96, utilizationPct: 9.4 },
+          connections: { current: 0, max: 5000 },
+        },
+        configuration: {
+          engine: 'Redis 7.2 / BullMQ',
+          backlogPolicy: 'unbounded',
+          pendingJobs: 0,
+          retryLimit: 3,
+        },
+        costMonthly: 5.0,
+      };
+      this.entities.set(queue.id, queue);
+
+      this.connections.set('conn-api-to-queue', {
+        id: 'conn-api-to-queue',
+        fromId: 'api-1',
+        toId: 'queue-1',
+        bandwidthMbps: 1000,
+        latencyMs: 1,
+        currentTrafficMbps: 0.2,
+      });
+
+      const api = this.entities.get('api-1');
+      if (api) {
+        api.configuration.jobType = 'invoice-pdf (async enqueue)';
+      }
+
+      this.metrics.monthlyCost += 5.0;
+
+      if (solutionId === 'sol_async_queue') {
+        const worker: Entity = {
+          id: 'worker-1',
+          type: 'worker',
+          name: 'Invoice PDF Worker',
+          position: { x: 660, y: 0 },
+          status: 'HEALTHY',
+          resources: {
+            cpu: { capacityCores: 4, usedCores: 0.2, utilizationPct: 5.0 },
+            memory: { capacityMb: 4096, usedMb: 380, utilizationPct: 9.3 },
+            connections: { current: 0, max: 250 },
+          },
+          configuration: {
+            runtime: 'Node.js worker process',
+            concurrency: 16,
+            consumes: 'queue:invoices',
+            maxRps: 120,
+          },
+          costMonthly: 7.0,
+        };
+        this.entities.set(worker.id, worker);
+        this.connections.set('conn-queue-to-worker', {
+          id: 'conn-queue-to-worker',
+          fromId: 'queue-1',
+          toId: 'worker-1',
+          bandwidthMbps: 1000,
+          latencyMs: 1,
+          currentTrafficMbps: 0.2,
+        });
+        this.metrics.monthlyCost += 7.0;
+        this.logEvent('success', 'Async pipeline live! API responds 202 Accepted; worker drains render-invoice-pdf jobs in the background.');
+      } else {
+        this.logEvent('warn', 'Queue deployed with ZERO consumers attached. Jobs will accumulate forever…');
+      }
+    }
+
     this.emitSnapshot();
   }
 
@@ -551,6 +688,7 @@ export class SimulationEngine {
       packets: Array.from(this.packets.values()),
       metrics: { ...this.metrics },
       events: [...this.events],
+      scenario: this.activeScenario,
       scenarioState: { ...this.scenarioState },
     };
   }
@@ -912,6 +1050,122 @@ export class SimulationEngine {
     this.logEvent('info', 'Loaded Scenario 3: Flash Sale Storefront → API → Redis 7.2 & PostgreSQL');
   }
 
+  private initializeScenario4(): void {
+    const userGroup: Entity = {
+      id: 'user-group-1',
+      type: 'user',
+      name: 'Checkout Buyers',
+      position: { x: -440, y: 0 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 1, usedCores: 0.1, utilizationPct: 10 },
+        memory: { capacityMb: 512, usedMb: 48, utilizationPct: 9.3 },
+        connections: { current: 0, max: 10000 },
+      },
+      configuration: {
+        activeClients: 380,
+        protocol: 'HTTPS/2',
+      },
+      costMonthly: 0,
+    };
+
+    const frontend: Entity = {
+      id: 'frontend-1',
+      type: 'static_host',
+      name: 'Checkout (Nginx)',
+      position: { x: -160, y: 0 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 2, usedCores: 0.15, utilizationPct: 7.5 },
+        memory: { capacityMb: 2048, usedMb: 240, utilizationPct: 11.7 },
+        connections: { current: 0, max: 300 },
+      },
+      configuration: {
+        port: 443,
+        routes: '/* -> Storefront SPA, /api/* -> Billing API',
+      },
+      costMonthly: 10.0,
+    };
+
+    // Slow synchronous endpoint: each request pins a worker while rendering a PDF.
+    const backendApi: Entity = {
+      id: 'api-1',
+      type: 'api',
+      name: 'Billing API (Node.js)',
+      position: { x: 160, y: 0 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 2, usedCores: 0.2, utilizationPct: 10.0 },
+        memory: { capacityMb: 2048, usedMb: 520, utilizationPct: 25.4 },
+        connections: { current: 0, max: 30 },
+      },
+      configuration: {
+        runtime: 'Node.js 20 / Express',
+        port: 8080,
+        endpoint: 'POST /api/invoices',
+        jobType: 'invoice-pdf (sync)',
+        maxRps: 16,
+        baseLatencyMs: 900,
+      },
+      costMonthly: 15.0,
+    };
+
+    const postgres: Entity = {
+      id: 'postgres-1',
+      type: 'database',
+      name: 'PostgreSQL 16',
+      position: { x: 120, y: 200 },
+      status: 'HEALTHY',
+      resources: {
+        cpu: { capacityCores: 2, usedCores: 0.1, utilizationPct: 5.0 },
+        memory: { capacityMb: 2048, usedMb: 540, utilizationPct: 26.4 },
+        connections: { current: 0, max: 20 },
+      },
+      configuration: {
+        port: 5432,
+        engine: 'PostgreSQL 16.2',
+        maxConnections: 20,
+        tableRows: '80,000 invoices',
+        hasIndex: true,
+      },
+      costMonthly: 20.0,
+    };
+
+    this.entities.set(userGroup.id, userGroup);
+    this.entities.set(frontend.id, frontend);
+    this.entities.set(backendApi.id, backendApi);
+    this.entities.set(postgres.id, postgres);
+
+    this.connections.set('conn-user-to-fe', {
+      id: 'conn-user-to-fe',
+      fromId: userGroup.id,
+      toId: frontend.id,
+      bandwidthMbps: 1000,
+      latencyMs: 10,
+      currentTrafficMbps: 1.2,
+    });
+
+    this.connections.set('conn-fe-to-api', {
+      id: 'conn-fe-to-api',
+      fromId: frontend.id,
+      toId: backendApi.id,
+      bandwidthMbps: 1000,
+      latencyMs: 3,
+      currentTrafficMbps: 2.0,
+    });
+
+    this.connections.set('conn-api-to-db', {
+      id: 'conn-api-to-db',
+      fromId: backendApi.id,
+      toId: postgres.id,
+      bandwidthMbps: 1000,
+      latencyMs: 2,
+      currentTrafficMbps: 0.5,
+    });
+
+    this.logEvent('info', 'Loaded Scenario 4: Buyer → Checkout → Billing API (sync PDF jobs) → PostgreSQL');
+  }
+
   private processScenarioProgress(dtSeconds: number): void {
     const simTime = this.clock.getSimTimeSeconds();
 
@@ -939,6 +1193,13 @@ export class SimulationEngine {
           this.scenarioState.currentStageId = 'stage_degraded';
           this.scenarioState.isSolutionModalOpen = true;
           this.logEvent('error', '⚠️ PostgreSQL connection pool saturated (20/20)! Unindexed query causing bottleneck.');
+        }
+      } else if (this.activeScenario.id === 'scenario-4-job-queues') {
+        const api = this.entities.get('api-1');
+        if (api && (api.status === 'OVERLOADED' || api.status === 'FAILING')) {
+          this.scenarioState.currentStageId = 'stage_degraded';
+          this.scenarioState.isSolutionModalOpen = true;
+          this.logEvent('error', '⚠️ Billing API pinned by inline PDF jobs! Request workers exhausted, checkout timing out.');
         }
       } else {
         const server = this.entities.get('server-prod-1');
@@ -972,7 +1233,33 @@ export class SimulationEngine {
     let complexity = 80;
     let summary = '';
 
-    if (this.activeScenario.id === 'scenario-3-redis-cache') {
+    if (this.activeScenario.id === 'scenario-4-job-queues') {
+      if (this.scenarioState.selectedSolutionId === 'sol_async_queue') {
+        grade = 'S';
+        reliability = 98;
+        costEff = 95;
+        complexity = 90;
+        summary = 'Textbook async offload! Checkout now responds with 202 in milliseconds while workers drain PDF jobs at their own pace. The queue absorbs bursts instead of the API cracking.';
+      } else if (this.scenarioState.selectedSolutionId === 'sol_vertical_billing') {
+        grade = 'B';
+        reliability = 80;
+        costEff = 55;
+        complexity = 92;
+        summary = 'The bigger box bought headroom, but every checkout still waits for a synchronous PDF. Next traffic bump means another expensive resize — and the single point of failure remains.';
+      } else if (this.scenarioState.selectedSolutionId === 'sol_queue_only') {
+        grade = 'C';
+        reliability = 40;
+        costEff = 70;
+        complexity = 88;
+        summary = 'Green dashboards, broken promises: the queue accepted every job but no worker ever processed them. A queue without consumers hides the failure — it does not solve it. Check the backlog!';
+      } else {
+        grade = 'C';
+        reliability = 70;
+        costEff = 60;
+        complexity = 70;
+        summary = 'Incident resolved, but the architecture still leaves slow work on the request path.';
+      }
+    } else if (this.activeScenario.id === 'scenario-3-redis-cache') {
       if (this.scenarioState.selectedSolutionId === 'sol_mutex_stampede_lock') {
         grade = 'S';
         reliability = 99;
@@ -1056,12 +1343,21 @@ export class SimulationEngine {
 
       const isDbScenario = this.activeScenario.id === 'scenario-2-backend-db';
       const isCacheScenario = this.activeScenario.id === 'scenario-3-redis-cache';
+      const isQueueScenario = this.activeScenario.id === 'scenario-4-job-queues';
 
       let requestPath: string[];
       let packetType: Packet['type'] = 'request';
 
       if (isCacheScenario) {
         requestPath = ['user-group-1', 'frontend-1', 'api-1', 'redis-1'];
+      } else if (isQueueScenario) {
+        // Async pipeline: once workers are attached, requests traverse api -> queue -> worker.
+        requestPath = ['user-group-1', 'frontend-1', 'api-1'];
+        if (this.entities.has('worker-1')) {
+          requestPath.push('queue-1', 'worker-1');
+        } else if (this.entities.has('queue-1')) {
+          requestPath.push('queue-1');
+        }
       } else if (isDbScenario) {
         requestPath = ['user-group-1', 'frontend-1', 'api-1', 'postgres-1'];
       } else {
@@ -1114,9 +1410,48 @@ export class SimulationEngine {
           const nextHopIdx = packet.currentHopIndex + 1;
           const currentTargetId = packet.path[nextHopIdx];
 
+          // Scenario 4: Job accepted by API -> hand off to queue, respond 202 immediately
+          if (currentTargetId === 'queue-1' && this.entities.has('worker-1')) {
+            packet.type = 'response';
+            packet.isCached = true;
+            packet.jobAccepted = true;
+            packet.path = ['api-1', 'frontend-1', 'user-group-1'];
+            packet.currentHopIndex = 0;
+            packet.fromId = 'api-1';
+            packet.toId = 'frontend-1';
+            packet.progress = 0.0;
+            packet.speed = 3.6;
+
+            // The actual PDF rendering travels queue -> worker in the background
+            const queue = this.entities.get('queue-1');
+            const worker = this.entities.get('worker-1');
+            if (queue) {
+              queue.configuration.pendingJobs = Number(queue.configuration.pendingJobs ?? 0) + 1;
+            }
+            if (worker) {
+              worker.resources.connections.current++;
+            }
+            const jobPacket: Packet = {
+              id: `pkt-${this.nextPacketId++}`,
+              fromId: 'queue-1',
+              toId: 'worker-1',
+              type: 'cache_query',
+              path: ['queue-1', 'worker-1'],
+              currentHopIndex: 0,
+              progress: 0.0,
+              speed: 1.8,
+              status: 'in_flight',
+              sizeKb: 0.8,
+              createdAtTick: packet.createdAtTick,
+              sqlQuery: 'JOB render-invoice-pdf',
+            };
+            this.packets.set(jobPacket.id, jobPacket);
+            continue;
+          }
+
           // Scenario 1: CDN Edge Cache Hit
           if (currentTargetId === 'cdn-edge-1') {
-            const isCacheHit = Math.random() < 0.8;
+            const isCacheHit = this.rng() < 0.8;
             if (isCacheHit) {
               const reversePath = packet.path.slice(0, nextHopIdx + 1).reverse();
               packet.type = 'response';
@@ -1141,7 +1476,7 @@ export class SimulationEngine {
           if (currentTargetId === 'redis-1') {
             const redis = this.entities.get('redis-1');
             const hitRatio = (redis?.configuration.cacheHitRatio as number) ?? 0.90;
-            const isHit = Math.random() < hitRatio;
+            const isHit = this.rng() < hitRatio;
 
             if (isHit) {
               // Cache Hit! Returned in 1ms directly from RAM
@@ -1161,7 +1496,7 @@ export class SimulationEngine {
               const hasReplica = this.entities.has('postgres-replica-1');
               const targetDb = hasReplica && (this.requestCounter % 2 === 0) ? 'postgres-replica-1' : 'postgres-1';
 
-              if (hasMutexLock && Math.random() < 0.94) {
+              if (hasMutexLock && this.rng() < 0.94) {
                 // Mutex Lock: Deduplicate concurrent requests. They wait briefly and receive populated cache result!
                 packet.type = 'cache_hit';
                 packet.isCached = true;
@@ -1218,6 +1553,17 @@ export class SimulationEngine {
           // Final server reached
           packetsToRemove.push(id);
           this.handleRequestArrival(packet, currentTargetId);
+        } else if (packet.type === 'cache_query') {
+          // Background job finished processing on the worker
+          packetsToRemove.push(id);
+          const queue = this.entities.get('queue-1');
+          const worker = this.entities.get('worker-1');
+          if (queue) {
+            queue.configuration.pendingJobs = Math.max(0, Number(queue.configuration.pendingJobs ?? 1) - 1);
+          }
+          if (worker && worker.resources.connections.current > 0) {
+            worker.resources.connections.current--;
+          }
         } else if (packet.type === 'sql_query') {
           // SQL query finished executing on database -> return sql_result to API
           const targetDbId = packet.toId;
@@ -1289,6 +1635,11 @@ export class SimulationEngine {
 
     server.resources.connections.current++;
 
+    // Queue-only trap: jobs land on the queue but nothing drains them — backlog grows.
+    if (server.type === 'queue') {
+      server.configuration.pendingJobs = Number(server.configuration.pendingJobs ?? 0) + 1;
+    }
+
     const isConnectionExhausted = server.resources.connections.current > server.resources.connections.max;
     const isCpuCrash = server.resources.cpu.utilizationPct > 100;
     const failed = isConnectionExhausted || isCpuCrash;
@@ -1313,9 +1664,11 @@ export class SimulationEngine {
   }
 
   private handleResponseArrival(packet: Packet): void {
-    const origin = this.entities.get(packet.fromId);
-    if (origin && origin.resources.connections.current > 0) {
-      origin.resources.connections.current--;
+    // The first node of a response path is the server that handled the request.
+    // Release ITS socket (packet.fromId at arrival time is the penultimate hop).
+    const server = this.entities.get(packet.path[0]);
+    if (server && server.resources.connections.current > 0) {
+      server.resources.connections.current--;
     }
 
     const currentTick = this.clock.getTick();
@@ -1363,8 +1716,8 @@ export class SimulationEngine {
       }
     }
 
-    // 2. Update Web Host & API Nodes
-    const servers = Array.from(this.entities.values()).filter((e) => e.type === 'static_host' || e.type === 'api');
+    // 2. Update Web Host, API & Worker Nodes
+    const servers = Array.from(this.entities.values()).filter((e) => e.type === 'static_host' || e.type === 'api' || e.type === 'worker');
     for (const server of servers) {
       const activeReqs = server.resources.connections.current;
       const maxCapacity = (server.configuration.maxRps as number) || 45;

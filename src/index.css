@@ -1409,3 +1409,190 @@ html, body, #root {
   transform: translateY(1px);
 }
 
+/* ==========================================================================
+   Coach / Onboarding Overlay (How to read the world)
+   ========================================================================== */
+
+.coach-backdrop {
+  z-index: 200;
+  backdrop-filter: blur(6px);
+}
+
+.coach-modal {
+  width: min(760px, 92vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 22px 24px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 40px var(--cyan-glow);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.coach-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.coach-header-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid var(--border-strong);
+}
+
+.coach-title {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.coach-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-width: 560px;
+}
+
+.coach-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 720px) {
+  .coach-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.coach-step {
+  display: flex;
+  gap: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.coach-step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid var(--border-strong);
+  color: var(--cyan);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.coach-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.coach-step-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.coach-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.legend-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.legend-chip i {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.coach-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.coach-list li::before {
+  content: '›';
+  margin-right: 6px;
+  color: var(--cyan);
+}
+
+.coach-list b {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.coach-note {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.btn-coach-start {
+  align-self: center;
+  padding: 11px 26px;
+  background: var(--cyan);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  color: #070a12;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 4px 14px rgba(56, 189, 248, 0.35);
+  transition: all 0.15s ease;
+}
+
+.btn-coach-start:hover {
+  background: #7dd3fc;
+}
+
+/* Hint line inside the Incident Diagnosis modal */
+.modal-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  font-style: italic;
+  max-width: 720px;
+}
+
